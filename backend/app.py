@@ -14,17 +14,19 @@ DB_PATH = BASE_DIR / 'keywords.db'
 MD_PATH = BASE_DIR / 'Keywords-Complete.md'
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 # ── helpers ──────────────────────────────────────────────────────────
 
 def get_db():
+    _init_db()
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def init_db():
+def _init_db():
+    """Crée la base et la table si elles n'existent pas."""
     if not DB_PATH.exists():
         conn = sqlite3.connect(str(DB_PATH))
         conn.execute("""
@@ -41,9 +43,6 @@ def init_db():
         """)
         conn.commit()
         conn.close()
-
-# Init à l'import
-init_db()
 
 # ── API ───────────────────────────────────────────────────────────────
 
@@ -140,28 +139,31 @@ def import_md():
     if not filepath.exists():
         return jsonify({'error': 'Fichier markdown non trouvé'}), 400
 
-    entries = parse_markdown(str(filepath))
+    try:
+        entries = parse_markdown(str(filepath))
 
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM keywords")
-    cur.execute("DELETE FROM sqlite_sequence WHERE name='keywords'")  # reset AUTOINCREMENT
-    cur.executemany("""
-        INSERT INTO keywords
-        (keyword, description, section_id, section_title, subsection_id, subsection_title, nsfw)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, [
-        (e['keyword'], e['description'], e['section_id'], e['section_title'],
-         e['subsection_id'], e['subsection_title'], int(e['nsfw']))
-        for e in entries
-    ])
-    conn.commit()
-    conn.close()
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM keywords")
+        cur.execute("DELETE FROM sqlite_sequence WHERE name='keywords'")  # reset AUTOINCREMENT
+        cur.executemany("""
+            INSERT INTO keywords
+            (keyword, description, section_id, section_title, subsection_id, subsection_title, nsfw)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, [
+            (e['keyword'], e['description'], e['section_id'], e['section_title'],
+             e['subsection_id'], e['subsection_title'], int(e['nsfw']))
+            for e in entries
+        ])
+        conn.commit()
+        conn.close()
 
-    if delete_after and tmp.exists():
-        tmp.unlink()
-
-    return jsonify({'imported': len(entries)})
+        return jsonify({'imported': len(entries)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        if delete_after and tmp.exists():
+            tmp.unlink()
 
 
 @app.route('/api/export', methods=['GET'])
