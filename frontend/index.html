@@ -4,7 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Prompts Keywords — Gestionnaire</title>
+  <script>
+    // Dark mode config pour Tailwind
+    if (localStorage.getItem('theme') === 'dark' || (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    }
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' }
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Inter', sans-serif; }
@@ -14,14 +23,21 @@
     .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
     .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
     .scrollbar-thin::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
+    .btn-mode { transition: all 0.15s ease; }
+    .btn-mode.active { background-color: #6366f1; color: white; border-color: #6366f1; }
+    .score-bar { height: 4px; border-radius: 3px; background: #e2e8f0; overflow: hidden; }
+    .score-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, #6366f1, #818cf8); transition: width 0.3s ease; }
+    /* Transition douce pour le dark mode */
+    html { transition: background-color 0.3s ease; }
+    html.dark { color-scheme: dark; }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800 antialiased">
+<body class="bg-slate-50 text-slate-800 antialiased dark:bg-slate-900 dark:text-slate-100">
 
   <div id="app" class="min-h-screen flex flex-col">
 
     <!-- Header -->
-    <header class="bg-slate-900 text-white shadow-lg">
+    <header class="bg-slate-900 text-white shadow-lg dark:bg-slate-950">
       <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
         <div class="flex items-center gap-3">
           <svg class="w-7 h-7 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 9h8M8 13h5"/></svg>
@@ -40,25 +56,42 @@
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Exporter
           </button>
+          <!-- Dark mode toggle -->
+          <button id="btn-theme" onclick="toggleTheme()"
+                  class="inline-flex items-center justify-center w-9 h-9 text-sm rounded-md bg-slate-800 hover:bg-slate-700 transition">
+            <span id="theme-icon" class="text-lg leading-none">🌙</span>
+          </button>
         </div>
       </div>
     </header>
 
     <!-- Filtres -->
-    <div id="filters-bar" class="bg-white border-b border-slate-200 shadow-sm hidden">
+    <div id="filters-bar" class="bg-white border-b border-slate-200 shadow-sm hidden dark:bg-slate-800 dark:border-slate-700">
       <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
         <div class="relative flex-1 min-w-[16rem]">
           <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="text" id="search-input"
                  placeholder="Rechercher un mot-clé ou une description..."
-                 class="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                 class="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200 dark:placeholder-slate-400">
         </div>
-        <select id="section-select" class="px-2 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+        <select id="section-select" class="px-2 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
           <option value="">Toutes sections</option>
         </select>
-        <label class="inline-flex items-center gap-2 px-2 py-1 text-sm select-none cursor-pointer">
-          <input type="checkbox" id="nsfw-check" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500">
-          <span class="text-slate-600">Afficher NSFW</span>
+        <!-- Toggle mode texte / sémantique -->
+        <div class="inline-flex rounded-md border border-slate-300 overflow-hidden dark:border-slate-600">
+          <button id="mode-text" onclick="setMode('text')"
+                  class="btn-mode active px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white">
+            🔤 Texte
+          </button>
+          <button id="mode-semantic" onclick="setMode('semantic')"
+                  class="btn-mode px-3 py-1.5 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
+            🧠 Sémantique
+          </button>
+        </div>
+        <div id="semantic-loading" class="hidden text-xs text-indigo-500 animate-pulse">Recherche sémantique en cours…</div>
+          <label class="inline-flex items-center gap-2 px-2 py-1 text-sm select-none cursor-pointer">
+          <input type="checkbox" id="nsfw-check" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500 dark:border-slate-600 dark:bg-slate-700">
+          <span class="text-slate-600 dark:text-slate-400">Afficher NSFW</span>
         </label>
       </div>
     </div>
@@ -68,11 +101,11 @@
 
       <!-- État vide -->
       <div id="empty-state" class="flex flex-col items-center justify-center py-20 text-center">
-        <div class="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mb-5">
-          <svg class="w-10 h-10 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        <div class="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mb-5 dark:bg-slate-800">
+          <svg class="w-10 h-10 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
         </div>
-        <h2 class="text-xl font-semibold text-slate-800 mb-2">Base de données vide</h2>
-        <p class="text-slate-500 max-w-sm mb-6">
+        <h2 class="text-xl font-semibold text-slate-800 mb-2 dark:text-slate-200">Base de données vide</h2>
+        <p class="text-slate-500 max-w-sm mb-6 dark:text-slate-400">
           Aucun mot-clé n'est encore chargé. Importez le fichier <code class="bg-slate-200 px-1.5 py-0.5 rounded text-sm font-mono">Keywords-Complete.md</code> pour commencer.
         </p>
         <button onclick="openImport()" class="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-md transition">
@@ -83,23 +116,24 @@
 
       <!-- Tableau -->
       <div id="results-area" class="hidden">
-        <div class="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden">
-          <div class="border-b border-slate-200 bg-slate-50 px-4 py-2 flex items-center justify-between">
-            <p class="text-sm text-slate-600">
-              <span id="count-display" class="font-semibold text-slate-900">0</span>
+        <div class="bg-white border border-slate-200 rounded-lg shadow-sm overflow-hidden dark:bg-slate-800 dark:border-slate-700">
+          <div class="border-b border-slate-200 bg-slate-50 px-4 py-2 flex items-center justify-between dark:border-slate-700 dark:bg-slate-800/80">
+            <p class="text-sm text-slate-600 dark:text-slate-400">
+              <span id="count-display" class="font-semibold text-slate-900 dark:text-slate-100">0</span>
               <span id="count-label">résultats</span>
             </p>
           </div>
           <div class="overflow-x-auto overflow-y-auto max-h-[calc(100vh-240px)] scrollbar-thin">
             <table class="w-full text-sm">
-              <thead class="bg-slate-50 sticky top-0 shadow-sm">
+              <thead class="bg-slate-50 sticky top-0 shadow-sm dark:bg-slate-800 dark:shadow-slate-700/30">
                 <tr>
-                  <th class="text-left px-4 py-2.5 font-semibold text-slate-600 border-b border-slate-200 w-52">Mot-clé</th>
-                  <th class="text-left px-4 py-2.5 font-semibold text-slate-600 border-b border-slate-200">Description</th>
-                  <th class="text-left px-4 py-2.5 font-semibold text-slate-600 border-b border-slate-200 w-56">Section</th>
+                  <th class="text-left px-4 py-2.5 font-semibold text-slate-600 border-b border-slate-200 w-52 dark:text-slate-400 dark:border-slate-700">Mot-clé</th>
+                  <th class="text-left px-4 py-2.5 font-semibold text-slate-600 border-b border-slate-200 dark:text-slate-400 dark:border-slate-700">Description</th>
+                  <th class="text-left px-4 py-2.5 font-semibold text-slate-600 border-b border-slate-200 w-44 dark:text-slate-400 dark:border-slate-700">Section</th>
+                  <th id="score-header" class="text-left px-4 py-2.5 font-semibold text-slate-600 border-b border-slate-200 w-24 hidden dark:text-slate-400 dark:border-slate-700">Pertinence</th>
                 </tr>
               </thead>
-              <tbody id="table-body" class="divide-y divide-slate-100"></tbody>
+              <tbody id="table-body" class="divide-y divide-slate-100 dark:divide-slate-700"></tbody>
             </table>
           </div>
         </div>
@@ -107,11 +141,11 @@
     </main>
 
     <!-- Modale Import -->
-    <div id="modal-import" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-      <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-          <h3 class="font-semibold text-slate-800">Importer un fichier Markdown</h3>
-          <button onclick="closeImport()" class="text-slate-400 hover:text-slate-600">
+    <div id="modal-import" class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm dark:bg-slate-950/80">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden dark:bg-slate-800 dark:border dark:border-slate-700">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between dark:border-slate-700">
+          <h3 class="font-semibold text-slate-800 dark:text-slate-200">Importer un fichier Markdown</h3>
+          <button onclick="closeImport()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
@@ -128,13 +162,13 @@
             <input type="file" id="file-input" accept=".md" onchange="handleFile(event)" class="hidden">
           </div>
           <div id="import-status" class="hidden mt-4 text-sm rounded-md p-3 border"></div>
-          <div id="import-loading" class="hidden mt-4 flex items-center gap-2 text-sm text-slate-500">
+          <div id="import-loading" class="hidden mt-4 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
             <svg class="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
             Importation en cours...
           </div>
         </div>
-        <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
-          <button onclick="closeImport()" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800">Fermer</button>
+        <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-end dark:bg-slate-800/80 dark:border-slate-700">
+          <button onclick="closeImport()" class="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">Fermer</button>
         </div>
       </div>
     </div>
@@ -145,6 +179,7 @@
     const API = '/api';
     let allKeywords = [];
     let sectionsList = [];
+    let searchMode = 'text'; // 'text' | 'semantic'
 
     // === DOM refs ===
     const $ = id => document.getElementById(id);
@@ -159,9 +194,26 @@
     const statsText = $('stats-text');
     const countDisplay = $('count-display');
     const countLabel = $('count-label');
+    const scoreHeader = $('score-header');
+    const semanticLoading = $('semantic-loading');
+    const modeText = $('mode-text');
+    const modeSemantic = $('mode-semantic');
 
     // === Init ===
     document.addEventListener('DOMContentLoaded', initApp);
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isDark = html.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      document.getElementById('theme-icon').textContent = isDark ? '☀️' : '🌙';
+    }
+
+    // Icône initiale
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('theme-icon').textContent =
+        document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+    });
 
     async function initApp() {
       // bind events
@@ -170,6 +222,22 @@
       nsfwCheck?.addEventListener('change', () => applyFilters());
 
       await checkData();
+    }
+
+    function setMode(mode) {
+      searchMode = mode;
+      // UI toggle
+      modeText.className = 'btn-mode px-3 py-1.5 text-xs font-medium ' +
+        (mode === 'text' ? 'active bg-indigo-600 text-white' : 'text-slate-600 bg-white hover:bg-slate-50');
+      modeSemantic.className = 'btn-mode px-3 py-1.5 text-xs font-medium ' +
+        (mode === 'semantic' ? 'active bg-indigo-600 text-white' : 'text-slate-600 bg-white hover:bg-slate-50');
+      // Masquer/afficher les filtres non pertinents en mode sémantique
+      sectionSelect.style.display = mode === 'semantic' ? 'none' : '';
+      nsfwCheck.closest('label').style.display = mode === 'semantic' ? 'none' : '';
+      searchInput.placeholder = mode === 'semantic'
+        ? 'Recherche sémantique — ex: "coiffure", "pose dynamique"...'
+        : 'Rechercher un mot-clé ou une description...';
+      applyFilters();
     }
 
     async function checkData() {
@@ -223,6 +291,10 @@
     }
 
     async function loadKeywords() {
+      if (searchMode === 'semantic') {
+        await loadSemantic();
+        return;
+      }
       try {
         const params = new URLSearchParams();
         if (searchInput.value.trim()) params.append('q', searchInput.value.trim());
@@ -237,14 +309,48 @@
       }
     }
 
+    async function loadSemantic() {
+      const q = searchInput.value.trim();
+      if (!q) {
+        // Pas de requête → recharge normal
+        try {
+          const res = await fetch(`${API}/keywords`);
+          allKeywords = await res.json();
+          renderTable(allKeywords);
+        } catch { renderTable([]); }
+        return;
+      }
+      semanticLoading.classList.remove('hidden');
+      try {
+        const res = await fetch(`${API}/search/semantic?q=${encodeURIComponent(q)}&limit=50`);
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || 'Erreur recherche sémantique');
+        }
+        allKeywords = await res.json();
+        renderTable(allKeywords);
+      } catch (err) {
+        allKeywords = [];
+        renderTable([]);
+        console.error(err);
+      } finally {
+        semanticLoading.classList.add('hidden');
+      }
+    }
+
     function applyFilters() {
       loadKeywords();
     }
 
     function renderTable(rows) {
       tableBody.innerHTML = '';
+      const isSemantic = searchMode === 'semantic';
+      const isDark = document.documentElement.classList.contains('dark');
+      // Afficher/masquer colonne score
+      scoreHeader.classList.toggle('hidden', !isSemantic);
       if (rows.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="3" class="px-4 py-10 text-center text-slate-400">Aucun résultat ne correspond aux filtres.</td></tr>';
+        const colspan = isSemantic ? 4 : 3;
+        tableBody.innerHTML = '<tr><td colspan="' + colspan + '" class="px-4 py-10 text-center text-slate-400 dark:text-slate-500">Aucun résultat trouvé.</td></tr>';
         countDisplay.textContent = '0';
         countLabel.textContent = 'résultat';
         return;
@@ -254,15 +360,24 @@
       const frag = document.createDocumentFragment();
       for (const row of rows) {
         const tr = document.createElement('tr');
-        tr.className = row.nsfw ? 'bg-rose-50/40' : '';
-        const nsfwClass = row.nsfw ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-indigo-600';
+        tr.className = row.nsfw
+          ? (isDark ? 'bg-rose-950/30' : 'bg-rose-50/40')
+          : '';
+        const nsfwClass = row.nsfw
+          ? (isDark ? 'bg-rose-900/50 text-rose-300' : 'bg-rose-100 text-rose-700')
+          : (isDark ? 'bg-slate-700 text-indigo-300' : 'bg-slate-100 text-indigo-600');
+        const pct = Math.round((row.score || 0) * 100);
+        const scoreTd = isSemantic
+          ? '<td class="px-4 py-2 align-top w-24"><div class="score-bar' + (isDark ? ' bg-slate-700' : '') + '"><div class="score-bar-fill" style="width:' + pct + '%"></div></div><span class="text-xs text-slate-400 dark:text-slate-500">' + pct + '%</span></td>'
+          : '';
         tr.innerHTML = `
           <td class="px-4 py-2 align-top"><code class="text-xs font-mono px-1.5 py-0.5 rounded ${nsfwClass}">${escapeHtml(row.keyword)}</code></td>
-          <td class="px-4 py-2 text-slate-700 align-top">${escapeHtml(row.description)}</td>
-          <td class="px-4 py-2 text-xs text-slate-500 align-top">
-            <div class="font-medium text-slate-600">${escapeHtml(row.subsection_title)}</div>
-            <div class="text-slate-400 mt-0.5">${escapeHtml(row.section_id)}. ${escapeHtml(row.section_title)}</div>
-          </td>`;
+          <td class="px-4 py-2 text-slate-700 align-top dark:text-slate-300">${escapeHtml(row.description)}</td>
+          <td class="px-4 py-2 text-xs text-slate-500 align-top dark:text-slate-400">
+            <div class="font-medium text-slate-600 dark:text-slate-300">${escapeHtml(row.subsection_title)}</div>
+            <div class="text-slate-400 mt-0.5 dark:text-slate-500">${escapeHtml(row.section_id)}. ${escapeHtml(row.section_title)}</div>
+          </td>
+          ${scoreTd}`;
         frag.appendChild(tr);
       }
       tableBody.appendChild(frag);
