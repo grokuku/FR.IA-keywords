@@ -12,7 +12,7 @@ from flask_cors import CORS
 
 from parser import parse_markdown
 from exporter import export_to_markdown
-from embeddings import generate_embedding, cosine_similarity, is_available
+from embeddings import generate_embedding, cosine_similarity, is_available, set_config
 from auth import init_oauth, make_discord_session, check_guild_access, get_guild_member, get_user_info, avatar_url, get_logged_user
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,21 +25,22 @@ CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 oauth = init_oauth(app)
 
-# Chargement du token HF stocké en BDD (si présent)
-def _load_hf_token_at_startup():
+# Chargement de la config Ollama stockée en BDD (si présent)
+def _load_ollama_config_at_startup():
     try:
-        from embeddings import set_token
+        from embeddings import set_config
         conn = sqlite3.connect(str(DB_PATH))
         cur = conn.cursor()
-        cur.execute("SELECT value FROM app_settings WHERE key = 'hf_token'")
-        row = cur.fetchone()
+        cur.execute("SELECT key, value FROM app_settings WHERE key IN ('ollama_url', 'ollama_model')")
+        rows = cur.fetchall()
         conn.close()
-        if row:
-            set_token(row[0])
+        cfg = {r[0]: r[1] for r in rows}
+        if cfg:
+            set_config(url=cfg.get('ollama_url'), model=cfg.get('ollama_model'))
     except Exception:
-        pass  # La BDD peut ne pas encore exister
+        pass
 
-_load_hf_token_at_startup()
+_load_ollama_config_at_startup()
 
 # ── helpers ──────────────────────────────────────────────────────────
 
@@ -116,6 +117,38 @@ def _get_current_user_id() -> str | None:
     return user["id"] if user else None
 
 
+def _login_required():
+    """Retourne une erreur 401 si non connecté."""
+    user_id = _get_current_user_id()
+    if not user_id:
+        return jsonify({"error": "Connexion requise. Utilisez le bouton 'Connexion Discord'."}), 401
+    _sync_session_user(user_id)
+    return None
+
+
+def _sync_session_user(user_id: str):
+    """Crée ou met à jour l'utilisateur en BDD à partir de la session."""
+    user = session.get("user")
+    if not user:
+        return
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+        if not cur.fetchone():
+            cur.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
+            admin_count = cur.fetchone()[0]
+            role = "admin" if admin_count == 0 else "user"
+            cur.execute(
+                "INSERT INTO users (id, username, display_name, avatar, role) VALUES (?, ?, ?, ?, ?)",
+                (user_id, user.get("username", ""), user.get("display_name", ""), user.get("avatar", ""), role)
+            )
+            conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 def _admin_required():
     """Retourne une erreur 403 si l'utilisateur n'est pas admin."""
     try:
@@ -156,21 +189,25 @@ def is_admin(user_id: str) -> bool:
         return True  # Fail safe : accès admin par défaut
 
 
-def _get_stored_hf_token() -> str | None:
-    """Lit le token HF depuis la BDD (app_settings) ou l'env var."""
-    env_token = os.environ.get("HF_TOKEN")
-    if env_token:
-        return env_token
+def _get_ollama_config() -> dict:
+    """Lit la config Ollama depuis la BDD (app_settings) ou les vars d'env."""
+    config = {
+        "url": os.environ.get("OLLAMA_URL", "http://localhost:11434"),
+        "model": os.environ.get("OLLAMA_MODEL", "nomic-embed-text"),
+    }
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT value FROM app_settings WHERE key = 'hf_token'")
-        row = cur.fetchone()
+        for key in ("ollama_url", "ollama_model"):
+            cur.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+            row = cur.fetchone()
+            if row:
+                config_key = key.replace("ollama_", "")
+                config[config_key] = row["value"]
         conn.close()
-        return row['value'] if row else None
     except Exception as e:
-        print(f"[_get_stored_hf_token] Erreur: {e}")
-        return None
+        print(f"[_get_ollama_config] Erreur: {e}")
+    return config
 
 
 def _generate_all_embeddings(conn):
@@ -276,11 +313,11 @@ def discord_callback():
     user_settings = json.loads(row["settings"]) if row and row["settings"] else {}
     conn.close()
 
-    # Surcharge du token HF stocké en BDD si présent
-    stored_token = _get_stored_hf_token()
-    if stored_token:
-        from embeddings import set_token
-        set_token(stored_token)
+    # Chargement de la config Ollama stockée en BDD
+    ollama_cfg = _get_ollama_config()
+    if ollama_cfg.get("url") or ollama_cfg.get("model"):
+        from embeddings import set_config
+        set_config(url=ollama_cfg.get("url"), model=ollama_cfg.get("model"))
 
     # Création de la session Flask
     session["user"] = {
@@ -399,28 +436,29 @@ def admin_delete_user(user_id):
     return jsonify({'status': 'ok'})
 
 
-@app.route('/api/admin/settings/hf-token', methods=['GET', 'POST'])
-def admin_hf_token():
-    """Lire / définir le token HF (admin seulement)."""
+@app.route('/api/admin/settings/ollama', methods=['GET', 'POST'])
+def admin_ollama_settings():
+    """Lire / définir la config Ollama (admin seulement)."""
     try:
         guard = _admin_required()
         if guard:
             return guard
         if request.method == 'POST':
             data = request.get_json()
-            token = data.get('token', '').strip()
-            if not token:
-                return jsonify({'error': 'Token requis'}), 400
+            url = data.get('url', '').strip()
+            model = data.get('model', '').strip()
+            if not url or not model:
+                return jsonify({'error': 'URL et modèle requis'}), 400
             conn = get_db()
-            conn.execute("INSERT INTO app_settings (key, value) VALUES ('hf_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (token,))
+            conn.execute("INSERT INTO app_settings (key, value) VALUES ('ollama_url', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (url,))
+            conn.execute("INSERT INTO app_settings (key, value) VALUES ('ollama_model', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (model,))
             conn.commit()
             conn.close()
-            from embeddings import set_token
-            set_token(token)
+            from embeddings import set_config
+            set_config(url=url, model=model)
             return jsonify({'status': 'ok'})
-        stored = _get_stored_hf_token()
-        masked = stored[:8] + '*' * (len(stored) - 8) if stored else None
-        return jsonify({'token': masked, 'has_token': stored is not None})
+        cfg = _get_ollama_config()
+        return jsonify(cfg)
     except Exception as e:
         return jsonify({'error': f'Erreur serveur: {e}'}), 500
 
@@ -440,34 +478,50 @@ def admin_db_clear():
 @app.route('/api/search/semantic', methods=['GET'])
 def semantic_search():
     """
-    Recherche sémantique via embeddings Hugging Face.
+    Recherche sémantique via Ollama.
     """
-    # Auth required
     guard = _login_required()
     if guard:
         return guard
 
     q = request.args.get('q', '').strip()
     limit = int(request.args.get('limit', 50))
-    user_id = _get_current_user_id()
+    nsfw = request.args.get('nsfw', '')
+    section = request.args.get('section', '').strip()
 
     if not q:
         return jsonify([])
 
     if not is_available():
-        return jsonify({'error': 'Token HF non configuré. Définissez HF_TOKEN.'}), 400
+        return jsonify({'error': 'Serveur Ollama inaccessible. Vérifie la config dans Admin > Ollama.'}), 400
 
-    query_vec = generate_embedding(q)
+    try:
+        query_vec = generate_embedding(q)
+    except Exception as e:
+        return jsonify({'error': f'Erreur Ollama: {e}'}), 500
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("""
+
+    conditions = []
+    params = []
+    if nsfw == '0':
+        conditions.append("k.nsfw = 0")
+    elif nsfw == '1':
+        conditions.append("k.nsfw = 1")
+    if section:
+        conditions.append("k.section_id = ?")
+        params.append(section)
+
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+    cur.execute(f"""
         SELECT k.id, k.keyword, k.description, k.section_id, k.section_title,
                k.subsection_id, k.subsection_title, k.nsfw, ke.embedding
         FROM keywords k
         JOIN keyword_embeddings ke ON ke.keyword_id = k.id
-        WHERE k.user_id = ?
-    """, (user_id,))
+        WHERE {where_clause}
+    """, params)
     rows = cur.fetchall()
     conn.close()
 
@@ -508,8 +562,8 @@ def list_keywords():
     section = request.args.get('section', '').strip()
     nsfw_raw = request.args.get('nsfw', '').strip()
 
-    conditions = ["k.user_id = ?"]
-    params = [user_id]
+    conditions = ["1=1"]
+    params = []
 
     if q:
         conditions.append("(LOWER(k.keyword) LIKE ? OR LOWER(k.description) LIKE ?)")
@@ -551,10 +605,9 @@ def list_sections():
                COUNT(*) as total,
                SUM(k.nsfw) as nsfw_count
         FROM keywords k
-        WHERE k.user_id = ?
         GROUP BY k.section_id
         ORDER BY k.section_id
-    """, (user_id,))
+    """)
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify(rows)
@@ -575,8 +628,7 @@ def stats():
                COUNT(DISTINCT k.section_id) as section_count,
                COUNT(DISTINCT k.subsection_id) as subsection_count
         FROM keywords k
-        WHERE k.user_id = ?
-    """, (user_id,))
+    """)
     row = dict(cur.fetchone())
     # Gérer les NULL (SUM sur table vide)
     row = {k: (v if v is not None else 0) for k, v in row.items()}
@@ -614,8 +666,15 @@ def import_md():
         conn = get_db()
         cur = conn.cursor()
 
-        cur.execute("DELETE FROM keyword_embeddings WHERE keyword_id IN (SELECT id FROM keywords WHERE user_id = ?)", (user_id,))
-        cur.execute("DELETE FROM keywords WHERE user_id = ?", (user_id,))
+        cur.execute("DELETE FROM keyword_embeddings")
+        cur.execute("DELETE FROM keywords")
+
+        # Déduplication : la dernière occurrence de chaque mot-clé écrase les précédentes
+        unique_map = {}
+        for e in entries:
+            key = e['keyword'].lower().strip()
+            unique_map[key] = e  # la dernière écrase
+        unique_entries = list(unique_map.values())
 
         cur.executemany("""
             INSERT INTO keywords
@@ -624,14 +683,14 @@ def import_md():
         """, [
             (e['keyword'], e['description'], e['section_id'], e['section_title'],
              e['subsection_id'], e['subsection_title'], int(e['nsfw']), user_id)
-            for e in entries
+            for e in unique_entries
         ])
         conn.commit()
 
         _generate_all_embeddings(conn)
         conn.close()
 
-        return jsonify({'imported': len(entries)})
+        return jsonify({'imported': len(unique_entries), 'duplicates_skipped': len(entries) - len(unique_entries)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
@@ -649,7 +708,7 @@ def build_embeddings():
         return guard
 
     if not is_available():
-        return jsonify({'error': 'Token HF non configuré. Définissez HF_TOKEN.'}), 400
+        return jsonify({'error': 'Serveur Ollama inaccessible. Vérifie la config dans Admin > Ollama.'}), 400
     try:
         conn = get_db()
         _generate_all_embeddings(conn)

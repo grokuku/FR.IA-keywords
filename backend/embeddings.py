@@ -1,10 +1,10 @@
 """
-Module d'embeddings via Hugging Face Inference API.
-Utilise le modèle multilingue paraphrase-MiniLM-L12-v2 (384 dimensions).
+Module d'embeddings via Ollama API.
+Configurez dans le panneau Admin : adresse du serveur + nom du modèle.
 
-Configuration :
-  - Variable d'environnement HF_TOKEN
-  - ou fichier ~/.hf_token contenant le token
+Ou via variables d'environnement :
+  OLLAMA_URL    défaut: http://localhost:11434
+  OLLAMA_MODEL  défaut: nomic-embed-text
 """
 
 import os
@@ -12,78 +12,62 @@ import json
 import urllib.request
 import urllib.error
 
-# Modèle multilingue performant (pas de préfixe spécial requis)
-HF_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
 
-# Token surchargeable dynamiquement (depuis la BDD admin)
-_OVERRIDE_TOKEN = None
+# Configuration par défaut (surchargée par la BDD ou les vars d'env)
+DEFAULT_OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+DEFAULT_OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "nomic-embed-text")
 
-
-def set_token(token: str | None):
-    """Surcharge le token HF (appelé depuis l'app avec le token stocké en BDD)."""
-    global _OVERRIDE_TOKEN
-    _OVERRIDE_TOKEN = token
+# Configuration surchargeable dynamiquement (depuis la BDD admin)
+_OVERRIDE_URL = None
+_OVERRIDE_MODEL = None
 
 
-def _get_hf_token() -> str | None:
-    """Lit le token HF : override > env var > fichier ~/.hf_token."""
-    if _OVERRIDE_TOKEN:
-        return _OVERRIDE_TOKEN
-    token = os.environ.get("HF_TOKEN")
-    if token:
-        return token
-    try:
-        path = os.path.expanduser("~/.hf_token")
-        if os.path.exists(path):
-            with open(path) as f:
-                return f.read().strip()
-    except OSError:
-        pass
-    return None
+def set_config(url: str | None = None, model: str | None = None):
+    """Surcharge la config Ollama (appelé depuis l'app avec les valeurs stockées en BDD)."""
+    global _OVERRIDE_URL, _OVERRIDE_MODEL
+    if url:
+        _OVERRIDE_URL = url
+    if model:
+        _OVERRIDE_MODEL = model
+
+
+def _get_url() -> str:
+    return _OVERRIDE_URL or DEFAULT_OLLAMA_URL
+
+
+def _get_model() -> str:
+    return _OVERRIDE_MODEL or DEFAULT_OLLAMA_MODEL
 
 
 def generate_embedding(text: str) -> list[float]:
-    """Appelle l'API HF et retourne un vecteur d'embedding (384 floats)."""
-    token = _get_hf_token()
-    if not token:
-        raise ValueError(
-            "Token Hugging Face non trouvé.\n"
-            "Définissez la variable d'environnement HF_TOKEN\n"
-            "ou créez ~/.hf_token avec votre token (https://hf.co/settings/tokens)."
-        )
+    """Appelle l'API Ollama et retourne un vecteur d'embedding."""
+    url = _get_url().rstrip("/") + "/api/embed"
+    model = _get_model()
 
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    payload = json.dumps({"inputs": text}).encode("utf-8")
+    payload = json.dumps({"model": model, "input": text}).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
 
-    req = urllib.request.Request(HF_API_URL, data=payload, headers=headers, method="POST")
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
 
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8")
-        raise RuntimeError(f"Erreur API HF ({e.code}): {body}")
+        body = e.read().decode("utf-8")[:300]
+        raise RuntimeError(f"Erreur Ollama ({e.code}): {body}")
     except urllib.error.URLError as e:
-        raise RuntimeError(f"Erreur réseau HF: {e.reason}")
+        raise RuntimeError(
+            f"Impossible de se connecter à Ollama ({url}): {e.reason}\n"
+            "Vérifie que le serveur Ollama est bien lancé."
+        )
 
-    # Réponse normale : [[0.1, 0.2, ...]]
-    if isinstance(result, list) and len(result) > 0 and isinstance(result[0], list):
-        return [float(x) for x in result[0]]
+    # Réponse : {"model":"...","embeddings":[[0.1, 0.2, ...]]}
+    if isinstance(result, dict):
+        embeddings = result.get("embeddings")
+        if embeddings and len(embeddings) > 0 and isinstance(embeddings[0], list):
+            return [float(x) for x in embeddings[0]]
 
-    # Le modèle peut être en cours de chargement
-    if isinstance(result, dict) and "error" in result:
-        err = result["error"]
-        if "loading" in err.lower():
-            raise RuntimeError(
-                "Modèle HF en cours de chargement, réessayez dans quelques secondes."
-            )
-        raise RuntimeError(f"Erreur API HF: {err}")
-
-    raise RuntimeError(f"Réponse API HF inattendue: {json.dumps(result)[:200]}")
+    raise RuntimeError(f"Réponse Ollama inattendue: {json.dumps(result)[:200]}")
 
 
 def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
@@ -97,5 +81,13 @@ def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
 
 
 def is_available() -> bool:
-    """Vérifie rapidement si le token est configuré (sans appel API)."""
-    return _get_hf_token() is not None
+    """Vérifie si Ollama est joignable."""
+    try:
+        url = _get_url().rstrip("/") + "/api/tags"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            model = _get_model()
+            models = data.get("models", [])
+            return any(m["name"].startswith(model) for m in models)
+    except Exception:
+        return False
