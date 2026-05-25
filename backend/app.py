@@ -745,6 +745,11 @@ def index():
     return send_from_directory(str(BASE_DIR / 'frontend'), 'index.html')
 
 
+@app.route('/beta')
+def beta():
+    return send_from_directory(str(BASE_DIR / 'frontend'), 'beta.html')
+
+
 @app.route('/<path:path>')
 def static_files(path):
     return send_from_directory(str(BASE_DIR / 'frontend'), path)
