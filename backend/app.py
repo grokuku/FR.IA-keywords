@@ -49,6 +49,15 @@ _load_ollama_config_at_startup()
 
 # ── encryption ───────────────────────────────────────────────────────
 
+def _row_get(row, key, default=None):
+    """Safe .get() for sqlite3.Row objects (they don't support .get())."""
+    try:
+        val = row[key]
+        return val if val is not None else default
+    except (KeyError, IndexError):
+        return default
+
+
 def _get_encryption_key():
     """Recupere ou genere la cle de chiffrement."""
     conn = sqlite3.connect(str(DB_PATH))
@@ -341,7 +350,7 @@ def _get_ollama_config() -> dict:
 
 
 def _generate_all_embeddings(conn):
-    """Génère et stocke les embeddings HF pour tous les mots-clés."""
+    """Génère et stocke les embeddings Ollama pour tous les mots-clés."""
     cur = conn.cursor()
     cur.execute("SELECT id, keyword, description FROM keywords")
     rows = cur.fetchall()
@@ -402,7 +411,7 @@ def discord_callback():
         if member:
             guild_nickname = member.get("nick") or member.get("user", {}).get("global_name")
 
-    # Détermination du rôle
+    # Détermination du rôle + sauvegarde
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
@@ -417,7 +426,6 @@ def discord_callback():
         role = "user"
 
     # Sauvegarde / mise à jour dans la BDD
-    conn = get_db()
     conn.execute("""
         INSERT INTO users (id, username, display_name, avatar, role, guild_nickname, last_login)
         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -804,7 +812,7 @@ def import_md():
         user_id = _get_current_user_id()
 
         if not is_available():
-            return jsonify({'error': 'Token HF non configuré. Définissez HF_TOKEN.'}), 400
+            return jsonify({'error': 'Serveur Ollama inaccessible. Vérifie la configuration dans Admin > Ollama.'}), 400
 
         if 'file' in request.files:
             f = request.files['file']
@@ -972,9 +980,9 @@ def single_filter(filter_id):
         filter_id
     )
     cur.execute("UPDATE saved_filters SET name=?, category=?, nsfw=?, is_public=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", vals)
-    conn.commit()
     config = data.get('config')
     if config and isinstance(config, dict):
+        cur.execute("UPDATE saved_filters SET config = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (json.dumps(config), filter_id))
         cur.execute("DELETE FROM filter_cache WHERE filter_id = ?", (filter_id,))
         _rebuild_filter_cache(cur, filter_id, config)
     conn.commit(); conn.close()
@@ -1024,8 +1032,8 @@ def _rebuild_filter_cache(cur, filter_id, config):
         params.extend([like, like, like, like])
     if search_neg:
         like_neg = f"%{search_neg.lower()}%"
-        conditions.append("(LOWER(k.keyword) NOT LIKE ? AND LOWER(k.description) NOT LIKE ?)")
-        params.extend([like_neg, like_neg])
+        conditions.append("(LOWER(k.keyword) NOT LIKE ? AND LOWER(k.description) NOT LIKE ? AND LOWER(k.section_title) NOT LIKE ? AND LOWER(k.subsection_title) NOT LIKE ?)")
+        params.extend([like_neg, like_neg, like_neg, like_neg])
     if hidden_ids and isinstance(hidden_ids, list) and len(hidden_ids) > 0:
         ph = ','.join('?' for _ in hidden_ids)
         conditions.append(f"k.id NOT IN ({ph})")
@@ -1035,22 +1043,35 @@ def _rebuild_filter_cache(cur, filter_id, config):
         try:
             from embeddings import generate_embedding, cosine_similarity
             qe = generate_embedding(semantic_text)
-            cur.execute("SELECT k.id, ke.embedding FROM keywords k JOIN keyword_embeddings ke ON ke.keyword_id = k.id")
+            # Pré-filtrer section/nsfw/hidden_ids dans la requête SQL
+            sem_conds = ["1=1"]
+            sem_params = []
+            if section:
+                sem_conds.append("k.section_id = ?")
+                sem_params.append(section)
+            if nsfw == '0':
+                sem_conds.append("k.nsfw = 0")
+            elif nsfw == '1':
+                sem_conds.append("k.nsfw = 1")
+            if hidden_ids and isinstance(hidden_ids, list) and len(hidden_ids) > 0:
+                ph = ','.join('?' for _ in hidden_ids)
+                sem_conds.append(f"k.id NOT IN ({ph})")
+                sem_params.extend(hidden_ids)
+            sem_where = " AND ".join(sem_conds)
+            cur.execute(f"SELECT k.id, ke.embedding, k.keyword, k.description FROM keywords k JOIN keyword_embeddings ke ON ke.keyword_id = k.id WHERE {sem_where}", sem_params)
+            # Calculer scores, filtrer, trier, limiter (identique à l'API /api/search/semantic)
+            scored = []
             for r in cur.fetchall():
                 emb = json.loads(r['embedding'])
                 sim = cosine_similarity(qe, emb)
-                if sim >= min_confidence:
-                    ok = True
-                    if section or nsfw in ('0', '1'):
-                        tmp = cur.execute("SELECT section_id, nsfw FROM keywords WHERE id = ?", (r['id'],)).fetchone()
-                        if tmp:
-                            if section and tmp['section_id'] != section: ok = False
-                            if nsfw == '0' and tmp['nsfw'] != 0: ok = False
-                            if nsfw == '1' and tmp['nsfw'] != 1: ok = False
-                    if ok:
-                        cur.execute("INSERT OR IGNORE INTO filter_cache (filter_id, keyword_id) VALUES (?, ?)", (filter_id, r['id']))
-        except Exception:
-            pass
+                if sim < min_confidence:
+                    continue
+                scored.append((r['id'], sim))
+            scored.sort(key=lambda x: x[1], reverse=True)
+            for kid, _ in scored[:50]:  # même limite que l'API
+                cur.execute("INSERT OR IGNORE INTO filter_cache (filter_id, keyword_id) VALUES (?, ?)", (filter_id, kid))
+        except Exception as e:
+            print(f"[_rebuild_filter_cache] Erreur branche semantique filtre {filter_id}: {e}")
         return
 
     where = " AND ".join(conditions)
@@ -1075,12 +1096,14 @@ def preview_filter(filter_id):
     cur = conn.cursor()
     cur.execute("SELECT k.keyword FROM filter_cache fc JOIN keywords k ON k.id = fc.keyword_id WHERE fc.filter_id = ? LIMIT 20", (filter_id,))
     keywords = [r['keyword'] for r in cur.fetchall()]
+    cur.execute("SELECT COUNT(*) FROM filter_cache WHERE filter_id = ?", (filter_id,))
+    total = cur.fetchone()[0]
     cur.execute("SELECT name, config FROM saved_filters WHERE id = ?", (filter_id,))
     info = cur.fetchone()
     conn.close()
     return jsonify({
         'name': info['name'] if info else '',
-        'total': len(keywords),
+        'total': total,
         'keywords': keywords,
         'config': json.loads(info['config']) if info and isinstance(info['config'], str) else (info['config'] if info else {})
     })
@@ -1089,19 +1112,6 @@ def preview_filter(filter_id):
 # ═══════════════════════════════════════════════════════════════════
 # Phase 1 : Presets IA + Styles + Enhance
 # ═══════════════════════════════════════════════════════════════════
-
-def _admin_required():
-    """Verifie que l'utilisateur est admin."""
-    guard = _login_required()
-    if guard: return guard
-    user_id = _get_current_user_id()
-    conn = get_db()
-    row = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
-    conn.close()
-    if not row or row['role'] != 'admin':
-        return jsonify({'error': 'Admin requis'}), 403
-    return None
-
 
 # ── Presets ─────────────────────────────────────────────────────────
 
@@ -1136,7 +1146,7 @@ def presets():
                 'base_url': r['base_url'],
                 'model': r['model'],
                 'is_global': bool(r['is_global']),
-                'is_client_side': bool(r.get('is_client_side', 0)),
+                'is_client_side': bool(_row_get(r, 'is_client_side', 0)),
                 'owner_name': r['display_name'] or r['username'] or '',
                 'created_at': r['created_at']
             })
@@ -1195,6 +1205,7 @@ def single_preset(preset_id):
         return jsonify({'error': 'Not found'}), 404
 
     if request.method == 'DELETE':
+        cur.execute("UPDATE generated_prompts SET preset_id = NULL WHERE preset_id = ?", (preset_id,))
         cur.execute("DELETE FROM ai_presets WHERE id = ?", (preset_id,))
         conn.commit()
         conn.close()
@@ -1217,7 +1228,7 @@ def single_preset(preset_id):
         data.get('base_url', row['base_url']),
         enc,
         data.get('model', row['model']),
-        int(data.get('is_client_side', row.get('is_client_side', 0))),
+        int(data.get('is_client_side', _row_get(row, 'is_client_side', 0))),
         preset_id
     ))
     conn.commit()
@@ -1340,7 +1351,7 @@ def styles():
                 'id': r['id'],
                 'name': r['name'],
                 'style_text': r['style_text'],
-                'negative_prompt': r.get('negative_prompt', ''),
+                'negative_prompt': _row_get(r, 'negative_prompt', ''),
                 'is_public': bool(r['is_public']),
                 'user_id': r['user_id'],
                 'owner_name': r['display_name'] or r['username'] or ''
@@ -1378,6 +1389,8 @@ def single_style(style_id):
         return jsonify({'error': 'Not found'}), 404
 
     if request.method == 'DELETE':
+        # Détacher les prompts générés qui référencent ce style (FK constraint)
+        conn.execute("UPDATE generated_prompts SET style_id = NULL WHERE style_id = ?", (style_id,))
         conn.execute("DELETE FROM styles WHERE id = ?", (style_id,))
         conn.commit()
         conn.close()
@@ -1390,7 +1403,7 @@ def single_style(style_id):
     """, (
         data.get('name', row['name']),
         data.get('style_text', row['style_text']),
-        data.get('negative_prompt', row.get('negative_prompt', '')),
+        data.get('negative_prompt', _row_get(row, 'negative_prompt', '')),
         int(data.get('is_public', row['is_public'])),
         style_id
     ))

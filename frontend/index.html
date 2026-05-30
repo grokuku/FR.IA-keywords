@@ -661,6 +661,10 @@
 
     let hiddenKWs = {};  // { id: true } — mots-cles masques localement
 
+    async function safeJson(res) {
+      try { return await res.json(); } catch(e) { return { error: 'Erreur serveur ' + res.status }; }
+    }
+
     function updateStats(stats) {
       var parts = [];
       if (stats.total > 0) parts.push(stats.total + ' mots-cles');
@@ -694,26 +698,20 @@
     searchNegInput?.addEventListener('change', function(){ semanticCache = null; });
       var confSlider = document.getElementById('filter-confidence');
       var confNum = document.getElementById('filter-confidence-num');
-      function applyConfidence(val) {
-        var n = parseInt(val);
+      function applyConfidence() {
+        var n = parseInt(confSlider.value);
         if (isNaN(n)) n = 0;
         if (n < 0) n = 0; if (n > 100) n = 100;
         confSlider.value = n;
         confNum.value = n;
-        var semInput = document.getElementById('search-semantic-input');
-        if (semInput && semInput.value.trim() && semanticCache && semanticCache.text === semInput.value.trim()) {
-          var conf = n / 100;
-          var filtered = conf > 0 ? semanticCache.results.filter(function(k){ return k.score >= conf; }) : semanticCache.results;
-          allKeywords = filtered;
-          renderTable(allKeywords);
-        }
+        semanticCache = null;  // forcer un re-fetch avec le nouveau %
+        loadKeywords();
       }
       if (confSlider) {
-        confSlider.addEventListener('input', function() { applyConfidence(this.value); });
+        confSlider.addEventListener('input', function() { confNum.value = this.value; applyConfidence(); });
       }
       if (confNum) {
-        confNum.addEventListener('input', function() { applyConfidence(this.value); });
-        confNum.addEventListener('change', function() { applyConfidence(this.value); });
+        confNum.addEventListener('change', function() { confSlider.value = this.value; applyConfidence(); });
       }
       if (currentUser) await checkData();
       if (currentUser) { loadEnhancerConfig(); loadEPState(); }
@@ -901,14 +899,11 @@
 
       let semResults = null;
       if (semQ) {
-        if (!semanticCache || semanticCache.text !== semQ) {
-          semResults = await fetchSemanticSearch(semQ, nsfw, section, 0);
-          if (semResults) semanticCache = { text: semQ, results: semResults };
+        if (!semanticCache || semanticCache.text !== semQ || semanticCache.confidence !== confidence) {
+          semResults = await fetchSemanticSearch(semQ, nsfw, section, confidence);
+          if (semResults) semanticCache = { text: semQ, confidence: confidence, results: semResults };
         } else {
           semResults = semanticCache.results;
-        }
-        if (confidence > 0 && semResults) {
-          semResults = semResults.filter(function(kw) { return kw.score >= confidence; });
         }
       }
       const [textResults] = await Promise.all([
@@ -967,8 +962,8 @@
       }
     }
 
-    function applyFilters() {
-      hiddenKWs = {};
+    function applyFilters(preserveHidden) {
+      if (!preserveHidden) hiddenKWs = {};
       loadKeywords();
     }
 
@@ -1292,7 +1287,12 @@
       document.querySelectorAll('input[name="nsfw-filter"]').forEach(function(r){ r.checked = r.value === nsfw; });
       document.getElementById('filter-confidence').value = Math.round((c.min_confidence || 0) * 100);
       document.getElementById('filter-confidence-num').value = Math.round((c.min_confidence || 0) * 100);
-      applyFilters();
+      // Restaurer les mots masqués (👁️)
+      hiddenKWs = {};
+      if (c.hidden_kw_ids && Array.isArray(c.hidden_kw_ids)) {
+        c.hidden_kw_ids.forEach(function(id){ hiddenKWs[id] = true; });
+      }
+      applyFilters(true);
     }
 
     async function saveCurrentFilter() {
@@ -1503,7 +1503,7 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(body)
         });
-        if (!res.ok) throw await res.json();
+        if (!res.ok) throw await safeJson(res);
         clearPresetForm();
         document.getElementById('preset-form-name').dataset.editId = '';
         loadPresets();
@@ -1516,7 +1516,7 @@
     async function dupPreset(id) {
       try {
         var res = await fetch(API + '/presets/' + id + '/duplicate', { method: 'POST' });
-        if (!res.ok) throw await res.json();
+        if (!res.ok) throw await safeJson(res);
         loadPresets();
         showModal('Preset', 'Preset duplique', 'success');
       } catch (err) {
@@ -1529,7 +1529,7 @@
         if (!ok) return;
         try {
           var res = await fetch(API + '/presets/' + id, { method: 'DELETE' });
-          if (!res.ok) throw await res.json();
+          if (!res.ok) throw await safeJson(res);
           loadPresets();
         } catch (err) {}
       });
@@ -1546,8 +1546,8 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ base_url: url, api_key: key })
         });
-        if (!r.ok) throw await r.json();
-        var models = await r.json();
+        if (!r.ok) throw await safeJson(r);
+        var models = await safeJson(r);
         var dd = document.getElementById('preset-models-dropdown');
         dd.innerHTML = '';
         models.forEach(function(m) {
@@ -1642,7 +1642,7 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify(body)
         });
-        if (!r.ok) throw await r.json();
+        if (!r.ok) throw await safeJson(r);
         clearStyleForm();
         loadStyles();
         showModal('Style', editId ? 'Style mis a jour' : 'Style ajoute !', 'success');
@@ -1709,7 +1709,7 @@
     async function refreshFilterCache(id) {
       try {
         var r = await fetch(API + '/filters/' + id + '/refresh', { method: 'POST' });
-        if (!r.ok) throw await r.json();
+        if (!r.ok) throw await safeJson(r);
         showModal('Cache', 'Cache du filtre regenere', 'success');
         loadManageFilters();
       } catch (err) {
@@ -1726,7 +1726,7 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({name: name})
           });
-          if (!r.ok) throw await r.json();
+          if (!r.ok) throw await safeJson(r);
           loadManageFilters();
           showModal('Filtre', 'Filtre renomme', 'success');
         } catch (err) {
@@ -1740,7 +1740,7 @@
         if (!ok) return;
         try {
           var r = await fetch(API + '/filters/' + id, { method: 'DELETE' });
-          if (!r.ok) throw await r.json();
+          if (!r.ok) throw await safeJson(r);
           loadManageFilters();
           showModal('Filtre', 'Filtre supprime', 'success');
         } catch (err) {
@@ -1770,11 +1770,15 @@
     }
 
     function delStyle(id) {
-      showConfirm('Supprimer', 'Supprimer ce style ?', function(ok){
+      showConfirm('Supprimer', 'Supprimer ce style ?', async function(ok){
         if (!ok) return;
-        fetch(API + '/styles/' + id, { method: 'DELETE' }).then(function(){
+        try {
+          var r = await fetch(API + '/styles/' + id, { method: 'DELETE' });
+          if (!r.ok) throw await safeJson(r);
           loadStyles();
-        }).catch(function(){});
+        } catch (e) {
+          showModal('Erreur', (e.error || e.message || 'Impossible de supprimer le style'), 'error');
+        }
       });
     }
 
@@ -1891,8 +1895,8 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body)
           });
-          if (!res.ok) throw await res.json();
-          data = await res.json();
+          if (!res.ok) throw await safeJson(res);
+          data = await safeJson(res);
         }
         document.getElementById('enhance-output').value = data.output;
         document.getElementById('btn-copy-enhance').classList.remove('hidden');
@@ -2191,13 +2195,15 @@
     }
 
     async function deleteUser(userId) {
-      showConfirm('Suppression', 'Supprimer cet utilisateur et tous ses mots-cles ?', function(ok){ if (ok) deleteUserConfirm(userId); }); return;
-      try {
-        var res = await fetch(API + '/admin/users/' + encodeURIComponent(userId), {method: 'DELETE'});
-        if (res.ok) loadAdminUsers();
-      } catch (err) {
-        showModal('Erreur', err.message || 'Une erreur est survenue', 'error');
-      }
+      showConfirm('Suppression', 'Supprimer cet utilisateur et tous ses mots-cles ?', async function(ok) {
+        if (!ok) return;
+        try {
+          var res = await fetch(API + '/admin/users/' + encodeURIComponent(userId), {method: 'DELETE'});
+          if (res.ok) loadAdminUsers();
+        } catch (err) {
+          showModal('Erreur', err.message || 'Une erreur est survenue', 'error');
+        }
+      });
     }
 
     async function loadOllamaConfig() {
@@ -2241,17 +2247,19 @@
     }
 
     async function adminClearDb() {
-      showConfirm('Vider la BDD', 'Vider la base de donnees ? Cette action est irreversible.', function(ok){ if (ok) adminClearDbConfirm(); }); return;
-      try {
-        var res = await fetch(API + '/admin/db/clear', {method: 'POST'});
-        if (res.ok) {
-          toggleAdmin();
-          await checkAuth();
-          await checkData();
+      showConfirm('Vider la BDD', 'Vider la base de donnees ? Cette action est irreversible.', async function(ok) {
+        if (!ok) return;
+        try {
+          var res = await fetch(API + '/admin/db/clear', {method: 'POST'});
+          if (res.ok) {
+            toggleAdmin();
+            await checkAuth();
+            await checkData();
+          }
+        } catch (err) {
+          showModal('Erreur', err.message || 'Action impossible', 'error');
         }
-      } catch (err) {
-        showModal('Erreur', err.message || 'Action impossible', 'error');
-      }
+      });
     }
 
     // === Layout panneaux redimensionnables ===

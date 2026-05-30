@@ -11,12 +11,10 @@ Configuration via variables d'environnement (ou .env) :
 """
 
 import os
-import json
-from pathlib import Path
 
 import requests
 from authlib.integrations.flask_client import OAuth
-from flask import session, redirect, request, jsonify, current_app
+from flask import session
 
 DISCORD_API = "https://discord.com/api"
 
