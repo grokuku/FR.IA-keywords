@@ -543,50 +543,46 @@ function hideWidget(node, name) {
                 node._resultArea = result;
                 node._domWidget = domWidget;
 
+                // ---- onExecuted SUR L'INSTANCE (pas le prototype !) ----
+                // LiteGraph met this.onExecuted = null dans son constructeur,
+                // ce qui MASQUE tout override sur nodeType.prototype.
+                // On doit donc écraser la propriété directement sur l'instance.
+                const origExec = node.onExecuted; // null (mis par le constructeur)
+                node.onExecuted = function (output) {
+                    if (origExec) origExec.call(this, output);
+
+                    // ComfyUI passe le résultat differemment selon la version :
+                    //   Nouveau frontend : detail.output = { elements: ["text"] }
+                    //   Ancien frontend : output = { elements: "text" } ou ["text"]
+                    let text = null;
+                    if (output && typeof output === 'object') {
+                        if (output.output !== undefined) {
+                            const out = output.output;
+                            if (typeof out === 'object' && !Array.isArray(out) && out.elements !== undefined) text = out.elements;
+                            else if (Array.isArray(out) && out.length > 0) text = out[0];
+                            else if (typeof out === 'string') text = out;
+                        }
+                        if (text === null && output.elements !== undefined) text = output.elements;
+                        if (text === null && Array.isArray(output) && output.length > 0) text = output[0];
+                    }
+                    if (text === null && typeof output === 'string') text = output;
+
+                    if (text !== null && text !== undefined) {
+                        const str = Array.isArray(text) ? text.join("") : String(text);
+                        console.log("[FR.IA] onExecuted result:", str.substring(0, 80));
+                        if (node._resultArea) {
+                            node._resultArea.value = str;
+                        }
+                    } else if (output) {
+                        console.log("[FR.IA] onExecuted: format inconnu:", JSON.stringify(output).substring(0, 200));
+                    }
+                };
+
                 // Sync initial
                 syncElementsWidget();
                 syncApiConfigWidget();
 
                 return r;
-            };
-
-            // ---- onExecuted : mettre à jour le textarea quand ComfyUI exécute la node ----
-            // ComfyUI passe le résultat à onExecuted. Le format peut varier :
-            //   - Objet : { elements: "text" } (par RETURN_NAMES)
-            //   - Array : ["text"] (par position)
-            const origExec = nodeType.prototype.onExecuted;
-            nodeType.prototype.onExecuted = function (output) {
-                origExec?.apply(this, arguments);
-
-                // ComfyUI passe le résultat differemment selon la version :
-                //   Nouveau frontend : { output: { elements: "text" }, ... }
-                //   Ancien frontend : { elements: "text" } ou ["text"]
-                //   Parfois : output est direct la valeur string
-                let text = null;
-                if (output && typeof output === 'object') {
-                    // Nouveau format avec clé "output"
-                    if (output.output !== undefined) {
-                        const out = output.output;
-                        if (typeof out === 'object' && !Array.isArray(out) && out.elements !== undefined) text = out.elements;
-                        else if (Array.isArray(out) && out.length > 0) text = out[0];
-                        else if (typeof out === 'string') text = out;
-                    }
-                    // Ancien format direct
-                    if (text === null && output.elements !== undefined) text = output.elements;
-                    if (text === null && Array.isArray(output) && output.length > 0) text = output[0];
-                }
-                // Valeur string directe
-                if (text === null && typeof output === 'string') text = output;
-
-                if (text !== null && text !== undefined) {
-                    const str = Array.isArray(text) ? text.join("") : String(text);
-                    console.log("[FR.IA] onExecuted result:", str.substring(0, 80));
-                    if (this._resultArea) {
-                        this._resultArea.value = str;
-                    }
-                } else if (output) {
-                    console.log("[FR.IA] onExecuted: format inconnu:", JSON.stringify(output).substring(0, 200));
-                }
             };
         },
 
@@ -599,7 +595,8 @@ function hideWidget(node, name) {
 
         // Écouteur d'événements API global (la méthode la plus fiable)
         async setup() {
-            const api = window.app?.api || window.comfyAPI?.api?.api;
+            // API singleton : ancien frontend (window.app.api) ou nouveau (window.comfyAPI.api)
+            const api = window.app?.api || window.comfyAPI?.api;
             if (!api) return;
 
             api.addEventListener("executed", ({ detail }) => {
