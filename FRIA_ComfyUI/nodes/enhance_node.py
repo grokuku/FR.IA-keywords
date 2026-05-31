@@ -15,6 +15,7 @@ class FRIAEnhanceNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "base_prompt": ("STRING", {"multiline": True, "default": ""}),
                 "prompt_type": (["sdxl", "sd15", "flux", "anima", "qwen", "liste"], {"default": "sdxl"}),
                 "output_format": (["text", "markdown", "json"], {"default": "text"}),
@@ -30,10 +31,10 @@ class FRIAEnhanceNode:
             }
         }
 
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("prompt", "model_used")
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("prompt",)
 
-    def enhance(self, base_prompt, prompt_type="sdxl", output_format="text",
+    def enhance(self, seed=0, base_prompt="", prompt_type="sdxl", output_format="text",
                 preset_id=0, style_id=0, special_instructions="",
                 elements="[]", _api_config="{}"):
         try:
@@ -78,6 +79,7 @@ class FRIAEnhanceNode:
         # Construire le payload pour /api/enhance
         payload = {
             "text": combined_text,
+            "seed": seed if seed > 0 else None,
             "prompt_type": prompt_type,
             "output_format": output_format,
             "preset_id": preset_id if preset_id > 0 else None,
@@ -96,16 +98,15 @@ class FRIAEnhanceNode:
             r.raise_for_status()
             data = r.json()
             prompt = data.get("output", "")
-            model = data.get("model_used", "")
             return {
-                "ui": {"prompt": [prompt], "model_used": [model]},
-                "result": (prompt, model)
+                "ui": {"prompt": [prompt]},
+                "result": (prompt,)
             }
         except ImportError:
             msg = "Erreur: module 'requests' manquant. pip install requests"
             return {
-                "ui": {"prompt": [msg], "model_used": [""]},
-                "result": (msg, "")
+                "ui": {"prompt": [msg]},
+                "result": (msg,)
             }
         except Exception as e:
             msg = str(e)
@@ -116,6 +117,6 @@ class FRIAEnhanceNode:
             else:
                 msg = f"Erreur API : {msg}"
             return {
-                "ui": {"prompt": [msg], "model_used": [""]},
-                "result": (msg, "")
+                "ui": {"prompt": [msg]},
+                "result": (msg,)
             }

@@ -27,7 +27,7 @@
                     if (w) { w.hidden = true; w.computeSize = () => [0, -4]; }
                 };
                 ["base_prompt", "prompt_type", "output_format", "preset_id", "style_id",
-                 "special_instructions", "elements", "_api_config"].forEach(
+                 "special_instructions", "_api_config"].forEach(
                     n => hideWidget(node, n)
                 );
 
@@ -234,6 +234,11 @@
                     resultTextarea.value = "Génération en cours...";
                     const payload = {
                         text: combinedText,
+                        seed: (() => {
+                            const sw = node.widgets?.find(w => w.name === "seed");
+                            const s = sw ? parseInt(sw.value) || 0 : 0;
+                            return s > 0 ? s : null;
+                        })(),
                         prompt_type: typeSelect.value,
                         output_format: formatSelect.value,
                         preset_id: parseInt(presetSelect.value) || null,
