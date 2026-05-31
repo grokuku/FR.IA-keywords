@@ -92,6 +92,8 @@ function hideWidget(node, name) {
                             return e;
                         }),
                         random_count: randCb.checked ? (parseInt(randN.value) || 3) : 0,
+                        random_sfw: sfwCb.checked,
+                        random_nsfw: nsfwCb.checked,
                     });
                 }
 
@@ -188,38 +190,49 @@ function hideWidget(node, name) {
                     items.forEach((item, idx) => {
                         const row = document.createElement("div");
                         Object.assign(row.style, {
-                            display: "flex", alignItems: "center", justifyContent: "space-between",
+                            display: "flex", alignItems: "center", gap: "4px",
                             padding: "3px 4px", borderRadius: "3px", marginBottom: "2px",
                             background: item.type === "filter" ? "#2d3748" : "#1a365d",
                             border: "1px solid #555",
                         });
+                        // Icône + nom (ellipsis si trop long)
                         const label = document.createElement("span");
-                        label.style.flex = "1";
-                        label.style.overflow = "hidden";
-                        label.style.textOverflow = "ellipsis";
-                        label.style.whiteSpace = "nowrap";
+                        label.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
                         if (item.type === "filter") {
-                            const parts = [`🔽 ${item.name || `Filtre #${item.id}`}`];
-                            if (item.author) parts.push(`(${item.author})`);
-                            parts.push(item.is_public ? "🌐" : "🔒");
-                            label.textContent = parts.join(" ");
+                            label.textContent = item.name || `Filtre #${item.id}`;
                         } else {
-                            label.textContent = `🧠 ${item.text || "?"}`;
+                            label.textContent = item.text || "?";
                         }
+                        row.appendChild(label);
+                        // Badge auteur + visibilité (aligné à droite avant ✕)
+                        if (item.type === "filter" && item.author) {
+                            const meta = document.createElement("span");
+                            meta.style.cssText = "font-size:10px;color:#999;white-space:nowrap;flex-shrink:0;";
+                            meta.textContent = `${item.author} ${item.is_public ? "🌐" : "🔒"}`;
+                            row.appendChild(meta);
+                        } else if (item.type === "filter") {
+                            const vis = document.createElement("span");
+                            vis.style.cssText = "flex-shrink:0;";
+                            vis.textContent = item.is_public ? "🌐" : "🔒";
+                            row.appendChild(vis);
+                        }
+                        // Type icon on far left
+                        const iconSpan = document.createElement("span");
+                        iconSpan.style.cssText = "flex-shrink:0;margin-right:2px;";
+                        iconSpan.textContent = item.type === "filter" ? "🔽" : "🧠";
+                        row.insertBefore(iconSpan, row.firstChild);
 
                         const del = document.createElement("button");
                         del.textContent = "✕";
                         Object.assign(del.style, {
                             background: "none", border: "none", color: "#f87171",
-                            cursor: "pointer", fontSize: "11px", padding: "0 4px",
+                            cursor: "pointer", fontSize: "11px", padding: "0 2px", flexShrink: "0",
                         });
                         del.onclick = () => {
                             items.splice(idx, 1);
                             renderList();
                             syncElementsWidget();
                         };
-
-                        row.appendChild(label);
                         row.appendChild(del);
                         listEl.appendChild(row);
                     });
@@ -263,10 +276,10 @@ function hideWidget(node, name) {
                     });
                 };
 
-                // ---- Random row (hauteur fixe) ----
+                // ---- Random + SFW/NSFW row (hauteur fixe) ----
                 const randRow = document.createElement("div");
                 Object.assign(randRow.style, {
-                    display: "flex", gap: "8px", alignItems: "center", marginBottom: "8px",
+                    display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center", marginBottom: "4px",
                     flex: "0 0 auto",
                 });
 
@@ -280,7 +293,7 @@ function hideWidget(node, name) {
                 randN.value = "3";
                 Object.assign(randN.style, {
                     width: "40px", padding: "2px 4px", borderRadius: "4px",
-                    border: "1px solid #555", background: "#1a1a1e",
+                    border: "1px solid #555", background: "1a1a1e",
                     color: "#fff", fontSize: "11px", textAlign: "center",
                 });
                 randN.min = 1;
@@ -291,11 +304,50 @@ function hideWidget(node, name) {
                 randLabel.htmlFor = randCb.id;
                 randLabel.textContent = "Add random";
 
+                // Séparateur visuel
+                const randSep = document.createElement("span");
+                randSep.textContent = "|";
+                Object.assign(randSep.style, { color: "#555", fontSize: "11px" });
+
+                // ---- SFW / NSFW checkboxes ----
+                const sfwCb = document.createElement("input");
+                sfwCb.type = "checkbox";
+                sfwCb.checked = true;
+                sfwCb.id = "fria-sfw-" + node.id;
+                const sfwLabel = document.createElement("label");
+                sfwLabel.style.fontSize = "11px";
+                sfwLabel.htmlFor = sfwCb.id;
+                sfwLabel.textContent = "SFW";
+                sfwLabel.style.color = "#4ade80";
+
+                const nsfwCb = document.createElement("input");
+                nsfwCb.type = "checkbox";
+                nsfwCb.checked = false;
+                nsfwCb.id = "fria-nsfw-" + node.id;
+                const nsfwLabel = document.createElement("label");
+                nsfwLabel.style.fontSize = "11px";
+                nsfwLabel.htmlFor = nsfwCb.id;
+                nsfwLabel.textContent = "NSFW";
+                nsfwLabel.style.color = "#f87171";
+
                 randRow.appendChild(randCb);
                 randRow.appendChild(randLabel);
                 randRow.appendChild(document.createTextNode(" N:"));
                 randRow.appendChild(randN);
+                randRow.appendChild(randSep);
+                randRow.appendChild(sfwCb);
+                randRow.appendChild(sfwLabel);
+                randRow.appendChild(nsfwCb);
+                randRow.appendChild(nsfwLabel);
 
+                // Validation : au moins un des deux doit être coché
+                function validateNsfwCheckboxes() {
+                    if (!sfwCb.checked && !nsfwCb.checked) {
+                        sfwCb.checked = true; // Forcer au moins SFW
+                    }
+                }
+                sfwCb.onchange = () => { validateNsfwCheckboxes(); syncElementsWidget(); };
+                nsfwCb.onchange = () => { validateNsfwCheckboxes(); syncElementsWidget(); };
                 randCb.onchange = () => { syncElementsWidget(); };
                 randN.onchange = () => { syncElementsWidget(); };
                 randN.oninput = () => { syncElementsWidget(); };
@@ -333,6 +385,8 @@ function hideWidget(node, name) {
 
                     if (randCb.checked) {
                         payload.random_count = parseInt(randN.value) || 3;
+                        payload.random_sfw = sfwCb.checked;
+                        payload.random_nsfw = nsfwCb.checked;
                     }
 
                     result.value = "Génération en cours...";

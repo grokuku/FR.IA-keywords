@@ -624,15 +624,30 @@ def admin_users():
 
 @app.route('/api/members', methods=['GET'])
 def list_members():
-    """Liste tous les utilisateurs (accessible à tous les membres connectés)."""
+    """Liste tous les utilisateurs avec leurs stats (accessible aux membres connectés)."""
     try:
         guard = _login_required()
         if guard:
             return guard
         conn = get_db()
         cur = conn.cursor()
+        # Infos de base + avatar
         cur.execute('SELECT id, username, display_name, avatar, role FROM users ORDER BY role, username')
         users = [dict(r) for r in cur.fetchall()]
+        # Stats par utilisateur
+        for u in users:
+            uid = u['id']
+            # Nombre de filtres sauvegardés
+            cur.execute('SELECT COUNT(*) FROM saved_filters WHERE user_id = ?', (uid,))
+            u['filter_count'] = cur.fetchone()[0]
+            # Nombre de prompts générés
+            cur.execute('SELECT COUNT(*) FROM generated_prompts WHERE user_id = ?', (uid,))
+            u['prompt_count'] = cur.fetchone()[0]
+            # Avatar URL
+            if u.get('avatar') and u.get('id'):
+                u['avatar_url'] = f"https://cdn.discordapp.com/avatars/{u['id']}/{u['avatar']}.png?size=64"
+            else:
+                u['avatar_url'] = ''
         conn.close()
         return jsonify(users)
     except Exception as e:
@@ -1748,8 +1763,8 @@ def generate_prompt():
     rng = random.Random(seed if seed is not None else None)
 
     random_count = int(data.get('random_count', 0))
-
-    if not elements and random_count <= 0:
+    random_sfw = data.get('random_sfw', True)   # Défaut : SFW autorisé
+    random_nsfw = data.get('random_nsfw', False)  # Défaut : NSFW non autorisé
         return jsonify({'prompt': '', 'count': 0, 'elements': [], 'debug': []})
 
     conn = get_db()
@@ -1826,14 +1841,31 @@ def generate_prompt():
                 pass
 
         # Charger les candidats, puis choisir en Python (déterministe avec rng)
+        # Filtrer par SFW/NSFW
+        nsfw_filter = None
+        if random_sfw and not random_nsfw:
+            nsfw_filter = 0  # SFW uniquement
+        elif random_nsfw and not random_sfw:
+            nsfw_filter = 1  # NSFW uniquement
+        # Si les deux ou aucun, pas de filtre
+
         if used_sections:
             ph = ','.join('?' for _ in used_sections)
-            cur.execute(
-                f"SELECT keyword FROM keywords WHERE section_id NOT IN ({ph}) OR section_id IS NULL",
-                list(used_sections)
-            )
+            if nsfw_filter is not None:
+                cur.execute(
+                    f"SELECT keyword FROM keywords WHERE (section_id NOT IN ({ph}) OR section_id IS NULL) AND nsfw = ?",
+                    list(used_sections) + [nsfw_filter]
+                )
+            else:
+                cur.execute(
+                    f"SELECT keyword FROM keywords WHERE section_id NOT IN ({ph}) OR section_id IS NULL",
+                    list(used_sections)
+                )
         else:
-            cur.execute("SELECT keyword FROM keywords")
+            if nsfw_filter is not None:
+                cur.execute("SELECT keyword FROM keywords WHERE nsfw = ?", (nsfw_filter,))
+            else:
+                cur.execute("SELECT keyword FROM keywords")
         candidates = [r[0] for r in cur.fetchall()]
         n = min(random_count, len(candidates))
         rand_keywords = rng.sample(candidates, n) if n > 0 else []

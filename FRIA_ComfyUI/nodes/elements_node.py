@@ -56,6 +56,8 @@ class FRIAElementsNode:
             payload["seed"] = seed
         if random_count > 0:
             payload["random_count"] = random_count
+            payload["random_sfw"] = bool(elems_cfg.get("random_sfw", True))
+            payload["random_nsfw"] = bool(elems_cfg.get("random_nsfw", False))
 
         headers = {"Content-Type": "application/json"}
         if api_key:
