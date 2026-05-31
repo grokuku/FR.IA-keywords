@@ -15,7 +15,7 @@ class FRIAElementsNode:
         return {}
 
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("prompt",)
+    RETURN_NAMES = ("elements",)
 
     def generate(self):
         # The JS widget stores the result in this node's widgets.
