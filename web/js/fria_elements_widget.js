@@ -56,11 +56,16 @@ async function apiCall(method, path, body) {
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // Stockage local des éléments pour cette instance de node
-                if (!this._friaElements) this._friaElements = [];
-
-                // Widget caché pour la sortie (lu par le Python stub)
+                // Widget caché pour la sortie
                 this._resultWidget = this.addWidget("hidden", "_result", "", () => {});
+
+                // Widget seed standard (INT nommé "seed" → ComfyUI ajoute les contrôles)
+                const seedWidget = this.addWidget("INT", "seed", 0, () => {
+                    triggerGenerate(node);
+                }, { min: 0, max: 0xffffffffffffffff });
+
+                // Stockage local des éléments
+                if (!this._friaElements) this._friaElements = [];
 
                 // ---- UI Container ----
                 const container = document.createElement("div");
@@ -101,19 +106,6 @@ async function apiCall(method, path, body) {
                 const addSemBtn = mkBtn("+ Add semantic");
                 tb.appendChild(addFilterBtn);
                 tb.appendChild(addSemBtn);
-
-                // ---- Seed widget (créé automatiquement par ComfyUI) ----
-                let seedWidget = this.widgets?.find(w => w.name === "seed");
-                if (!seedWidget) {
-                    // Fallback : créer nous-mêmes si ComfyUI ne l'a pas fait
-                    seedWidget = this.addWidget("number", "seed", 0, () => {}, { min: 0 });
-                }
-                // Auto-générer quand le seed change
-                const origCallback = seedWidget.callback;
-                seedWidget.callback = (val) => {
-                    if (origCallback) origCallback(val);
-                    triggerGenerate(node);
-                };
 
                 // ---- Liste des éléments ----
                 const listEl = document.createElement("div");
@@ -238,7 +230,6 @@ async function apiCall(method, path, body) {
                 genBtn.style.padding = "6px";
                 genBtn.style.marginBottom = "8px";
 
-                const node = this;
                 genBtn.onclick = () => triggerGenerate(node);
 
                 // ---- triggerGenerate : appelle l'API avec le seed courant ----
@@ -300,24 +291,8 @@ async function apiCall(method, path, body) {
                 container.appendChild(genBtn);
                 container.appendChild(result);
 
-                // Ajouter l'UI dans le DOM de la node (après les widgets standard)
-                const nodeDOM = this.element;
-                if (nodeDOM) {
-                    const wrap = document.createElement("div");
-                    wrap.style.padding = "8px";
-                    wrap.style.minHeight = "280px";
-                    wrap.style.background = "#2a2a2e";
-                    wrap.appendChild(container);
-                    nodeDOM.appendChild(wrap);
-                }
-
-                // Forcer le recalcul de la taille
-                setTimeout(() => {
-                    if (this.setSize && this.computeSize) {
-                        try { this.setSize(this.computeSize([this.size[0], 400])); }
-                        catch (e) {}
-                    }
-                }, 50);
+                // Add as custom widget
+                this.addDOMWidget("elements_ui", "custom", container);
 
                 return r;
             };
