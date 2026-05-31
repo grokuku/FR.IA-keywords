@@ -31,6 +31,7 @@ _enhance_mod = _load_module(
 
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
+WEB_DIRECTORY = "web"
 
 if _elements_mod and hasattr(_elements_mod, "FRIAElementsNode"):
     cls = _elements_mod.FRIAElementsNode
@@ -42,4 +43,4 @@ if _enhance_mod and hasattr(_enhance_mod, "FRIAEnhanceNode"):
     NODE_CLASS_MAPPINGS["FRIAEnhanceNode"] = cls
     NODE_DISPLAY_NAME_MAPPINGS["FRIAEnhanceNode"] = "FR.IA Prompt Enhancer"
 
-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

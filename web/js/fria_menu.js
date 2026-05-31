@@ -1,4 +1,7 @@
-import { app } from "../../../scripts/app.js";
+/**
+ * FR.IA — Menu & Settings extension for ComfyUI.
+ * Adds a [FR.IA] button to the menu bar with dropdown options.
+ */
 
 const STORAGE_KEY = "FRIA_config";
 
@@ -11,66 +14,83 @@ function setConfig(cfg) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
 }
 
-app.registerExtension({
-    name: "FR.IA.Menu",
-    async setup() {
-        const menu = document.querySelector(".comfy-menu");
-        if (!menu) return;
-
-        // --- Bouton FR.IA ---
-        const btn = document.createElement("button");
-        btn.textContent = "FR.IA ▾";
-        Object.assign(btn.style, {
-            background: "#6366f1", color: "white", border: "none",
-            padding: "4px 12px", borderRadius: "6px", cursor: "pointer",
-            fontSize: "13px", fontWeight: "600", margin: "0 4px",
-        });
-
-        // --- Dropdown ---
-        const dd = document.createElement("div");
-        Object.assign(dd.style, {
-            display: "none", position: "absolute", top: "100%", left: "0",
-            background: "#2a2a2e", border: "1px solid #444", borderRadius: "8px",
-            minWidth: "200px", zIndex: "9999", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-        });
-
-        const mkItem = (txt, icon, cb) => {
-            const el = document.createElement("div");
-            el.textContent = `${icon}  ${txt}`;
-            Object.assign(el.style, {
-                padding: "10px 16px", cursor: "pointer", fontSize: "13px",
-                borderBottom: "1px solid #444",
-            });
-            el.onmouseenter = () => el.style.background = "#3a3a3e";
-            el.onmouseleave = () => el.style.background = "";
-            el.onclick = () => { cb(); dd.style.display = "none"; };
-            return el;
-        };
-
-        dd.appendChild(mkItem("Open Webpage", "🌐", () => {
-            const cfg = getConfig();
-            window.open(cfg.serverUrl || "https://kw.holaf.fr", "_blank");
-        }));
-        const lastItem = mkItem("Paramètres", "⚙️", () => openSettings());
-        lastItem.style.borderBottom = "none";
-        dd.appendChild(lastItem);
-
-        const wrapper = document.createElement("div");
-        Object.assign(wrapper.style, { position: "relative", display: "inline-block" });
-        wrapper.appendChild(btn);
-        wrapper.appendChild(dd);
-
-        btn.onclick = (e) => {
-            e.stopPropagation();
-            dd.style.display = dd.style.display === "none" ? "block" : "none";
-        };
-        document.addEventListener("click", () => dd.style.display = "none");
-
-        menu.appendChild(wrapper);
+// Wait for ComfyUI app to be available, then register
+(function waitForApp() {
+    const app = window.app || window.comfyAPI?.app?.app;
+    if (!app) {
+        setTimeout(waitForApp, 100);
+        return;
     }
-});
 
-// --- Modale Paramètres ---
+    app.registerExtension({
+        name: "FR.IA.Menu",
+        async setup() {
+            setTimeout(initMenu, 50);
+        }
+    });
+})();
+
+function initMenu() {
+    const menu = document.querySelector(".comfy-menu");
+    if (!menu) {
+        setTimeout(initMenu, 300);
+        return;
+    }
+
+    // --- Bouton FR.IA ---
+    const btn = document.createElement("button");
+    btn.textContent = "FR.IA ▾";
+    Object.assign(btn.style, {
+        background: "#6366f1", color: "white", border: "none",
+        padding: "4px 12px", borderRadius: "6px", cursor: "pointer",
+        fontSize: "13px", fontWeight: "600", margin: "0 4px",
+    });
+
+    // --- Dropdown ---
+    const dd = document.createElement("div");
+    Object.assign(dd.style, {
+        display: "none", position: "absolute", top: "100%", left: "0",
+        background: "#2a2a2e", border: "1px solid #444", borderRadius: "8px",
+        minWidth: "200px", zIndex: "9999", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+    });
+
+    const mkItem = (txt, icon, cb) => {
+        const el = document.createElement("div");
+        el.textContent = `${icon}  ${txt}`;
+        Object.assign(el.style, {
+            padding: "10px 16px", cursor: "pointer", fontSize: "13px",
+            borderBottom: "1px solid #444",
+        });
+        el.onmouseenter = () => el.style.background = "#3a3a3e";
+        el.onmouseleave = () => el.style.background = "";
+        el.onclick = () => { cb(); dd.style.display = "none"; };
+        return el;
+    };
+
+    dd.appendChild(mkItem("Open Webpage", "🌐", () => {
+        const cfg = getConfig();
+        window.open(cfg.serverUrl || "https://kw.holaf.fr", "_blank");
+    }));
+
+    const paramsItem = mkItem("Paramètres", "⚙️", () => openSettings());
+    paramsItem.style.borderBottom = "none";
+    dd.appendChild(paramsItem);
+
+    const wrapper = document.createElement("div");
+    Object.assign(wrapper.style, { position: "relative", display: "inline-block" });
+    wrapper.appendChild(btn);
+    wrapper.appendChild(dd);
+
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        dd.style.display = dd.style.display === "none" ? "block" : "none";
+    };
+    document.addEventListener("click", () => dd.style.display = "none");
+
+    menu.appendChild(wrapper);
+    console.log("[FR.IA] Menu initialized");
+}
+
 function openSettings() {
     const cfg = getConfig();
 
