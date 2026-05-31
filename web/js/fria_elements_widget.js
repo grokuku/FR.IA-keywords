@@ -424,11 +424,11 @@ function hideWidget(node, name) {
 
                     apiCall("POST", "generate", payload).then(data => {
                         const prompt = data.prompt || "";
-                        result.value = prompt;
+                        if (node._resultArea) node._resultArea.value = prompt;
                         syncElementsWidget();
                         syncApiConfigWidget();
                     }).catch(err => {
-                        result.value = "Erreur : " + err.message;
+                        if (node._resultArea) node._resultArea.value = "Erreur : " + err.message;
                     });
                 }
 
@@ -595,6 +595,39 @@ function hideWidget(node, name) {
             if (node._friaRestore) {
                 setTimeout(() => node._friaRestore(), 0);
             }
+        },
+
+        // Écouteur d'événements API global (la méthode la plus fiable)
+        async setup() {
+            const api = window.app?.api || window.comfyAPI?.api?.api;
+            if (!api) return;
+
+            api.addEventListener("executed", ({ detail }) => {
+                if (!detail?.node || !detail?.output) return;
+                
+                // Trouver le nœud dans le graph
+                const node = window.app.graph.getNodeById(detail.node);
+                if (!node || node.type !== "FRIAElementsNode" || !node._resultArea) return;
+
+                const output = detail.output;
+                let text = null;
+
+                // Extraction robuste du texte
+                if (output.elements !== undefined) text = output.elements;
+                else if (Array.isArray(output) && output.length > 0) text = output[0];
+                else if (typeof output === 'string') text = output;
+                else if (output.output) { // Format nested
+                    const o = output.output;
+                    if (o.elements !== undefined) text = o.elements;
+                    else if (Array.isArray(o) && o.length > 0) text = o[0];
+                }
+
+                if (text !== null && text !== undefined) {
+                    const str = Array.isArray(text) ? text.join("") : String(text);
+                    node._resultArea.value = str;
+                    console.log("[FR.IA] WebSocket executed update:", str.substring(0, 50));
+                }
+            });
         }
     });
 })();

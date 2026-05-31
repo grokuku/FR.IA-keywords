@@ -48,7 +48,7 @@ class FRIAElementsNode:
 
         # Vérifier qu'il y a du contenu à générer
         if not elements and random_count <= 0:
-            return ("",)
+            return ("⚠️ Aucun filtre sélectionné. Ajoutez des filtres dans la liste.",)
 
         # Construire le payload pour /api/generate
         payload = {"elements": elements}
