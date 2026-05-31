@@ -129,17 +129,31 @@ async function checkServerStatus(el) {
     try {
         const headers = {};
         if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-        const resp = await fetch(`${baseUrl}/api/stats`, {
-            method: "GET",
-            headers,
-            signal: AbortSignal.timeout(5000),
-        });
-        if (resp.ok) {
-            el.textContent = "🟢  Serveur en ligne";
+
+        // Récupérer les stats ET l'utilisateur en parallèle
+        const [statsResp, meResp] = await Promise.all([
+            fetch(`${baseUrl}/api/stats`, { method: "GET", headers, signal: AbortSignal.timeout(5000) }).catch(() => null),
+            fetch(`${baseUrl}/api/auth/me`, { method: "GET", headers, signal: AbortSignal.timeout(5000) }).catch(() => null),
+        ]);
+
+        const serverOk = statsResp && statsResp.ok;
+        let user = null;
+        if (meResp && meResp.ok) {
+            try { user = await meResp.json(); } catch {}
+        }
+
+        if (user && user.display_name) {
+            el.textContent = `🟢  Connecté en tant que : ${user.display_name}`;
             el.style.color = "#4ade80";
-        } else {
-            el.textContent = "🟡  Serveur répond (HTTP " + resp.status + ")";
+        } else if (serverOk) {
+            el.textContent = "🟢  Serveur en ligne (non connecté)";
+            el.style.color = "#4ade80";
+        } else if (statsResp) {
+            el.textContent = "🟡  Serveur répond (HTTP " + statsResp.status + ")";
             el.style.color = "#facc15";
+        } else {
+            el.textContent = "🔴  Serveur hors ligne";
+            el.style.color = "#f87171";
         }
     } catch {
         el.textContent = "🔴  Serveur hors ligne";

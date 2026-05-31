@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, request, jsonify, send_file, send_from_directory, session, redirect, render_template_string
+from flask import Flask, request, jsonify, send_file, send_from_directory, session, redirect, render_template_string, g
 from flask_cors import CORS
 
 from parser import parse_markdown
@@ -251,9 +251,17 @@ def _init_db():
 
 
 def _get_current_user_id() -> str | None:
-    """Retourne l'ID Discord de l'utilisateur connecté, ou None."""
+    """Retourne l'ID de l'utilisateur connecté (session, token API, ou Flask g)."""
+    # 1) Flask g (positionné par _login_required)
+    gid = getattr(g, 'user_id', None)
+    if gid:
+        return gid
+    # 2) Session (connexion Discord)
     user = session.get("user")
-    return user["id"] if user else None
+    if user:
+        return user["id"]
+    # 3) Bearer token (API)
+    return _authenticate_via_token()
 
 
 def _authenticate_via_token() -> str | None:
@@ -273,12 +281,12 @@ def _authenticate_via_token() -> str | None:
 
 
 def _login_required():
-    """Retourne une erreur 401 si non connecté (session OU token API)."""
+    """Retourne une erreur 401 si non connecté (session OU token API).
+    Positionne aussi g.user_id pour que _get_current_user_id() le trouve."""
     user_id = _get_current_user_id()
     if not user_id:
-        user_id = _authenticate_via_token()
-    if not user_id:
         return jsonify({"error": "Connexion requise. Utilisez le bouton 'Connexion Discord' ou un token API."}), 401
+    g.user_id = user_id
     _sync_session_user(user_id)
     return None
 
