@@ -24,7 +24,7 @@ MD_PATH = BASE_DIR / 'Keywords-Complete.md'
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24).hex())
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 oauth = init_oauth(app)
 

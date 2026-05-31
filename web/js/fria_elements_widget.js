@@ -15,6 +15,10 @@ function getConfig() {
     catch { return {}; }
 }
 
+function getApiUrl() {
+    return "https://kw.holaf.fr/api";
+}
+
 function getApiKey() {
     return getConfig().apiKey || "";
 }
@@ -26,14 +30,10 @@ function apiHeaders() {
     return h;
 }
 
-/**
- * Appelle l'API via le proxy ComfyUI (/fria/*) pour éviter le CORS.
- * Le proxy forwarde vers kw.holaf.fr/api/<path>.
- */
 async function apiCall(method, path, body) {
     const opts = { method, headers: apiHeaders() };
     if (body) opts.body = JSON.stringify(body);
-    const resp = await fetch(`/fria/${path.replace(/^\//, "")}`, opts);
+    const resp = await fetch(`${getApiUrl()}/${path.replace(/^\//, "")}`, opts);
     if (!resp.ok) {
         const txt = await resp.text().catch(() => "");
         throw new Error(`HTTP ${resp.status}: ${txt.substring(0, 200)}`);
