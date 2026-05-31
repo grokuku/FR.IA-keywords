@@ -300,8 +300,24 @@ async function apiCall(method, path, body) {
                 container.appendChild(genBtn);
                 container.appendChild(result);
 
-                // ---- Add as custom widget ----
-                this.addDOMWidget("elements_ui", "custom", container);
+                // Ajouter l'UI dans le DOM de la node (après les widgets standard)
+                const nodeDOM = this.element;
+                if (nodeDOM) {
+                    const wrap = document.createElement("div");
+                    wrap.style.padding = "8px";
+                    wrap.style.minHeight = "280px";
+                    wrap.style.background = "#2a2a2e";
+                    wrap.appendChild(container);
+                    nodeDOM.appendChild(wrap);
+                }
+
+                // Forcer le recalcul de la taille
+                setTimeout(() => {
+                    if (this.setSize && this.computeSize) {
+                        try { this.setSize(this.computeSize([this.size[0], 400])); }
+                        catch (e) {}
+                    }
+                }, 50);
 
                 return r;
             };

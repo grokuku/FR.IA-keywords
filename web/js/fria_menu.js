@@ -125,9 +125,13 @@ function initMenu(appInstance) {
 async function checkServerStatus(el) {
     const cfg = getConfig();
     const baseUrl = (cfg.serverUrl || "https://kw.holaf.fr").replace(/\/+$/, "");
+    const apiKey = cfg.apiKey || "";
     try {
+        const headers = {};
+        if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
         const resp = await fetch(`${baseUrl}/api/stats`, {
             method: "GET",
+            headers,
             signal: AbortSignal.timeout(5000),
         });
         if (resp.ok) {
