@@ -12,12 +12,16 @@ class FRIAElementsNode:
 
     @classmethod
     def INPUT_TYPES(cls):
-        return {}
+        return {
+            "required": {
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+            }
+        }
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("elements",)
 
-    def generate(self):
+    def generate(self, seed):
         # Le widget JS stocke le résultat dans un widget caché _result
         prompt = ""
         if hasattr(self, "widgets") and self.widgets:

@@ -59,10 +59,11 @@ async function apiCall(method, path, body) {
                 // Widget caché pour la sortie
                 this._resultWidget = this.addWidget("hidden", "_result", "", () => {});
 
-                // Widget seed standard (INT nommé "seed" → ComfyUI ajoute les contrôles)
-                const seedWidget = this.addWidget("number", "seed", 0, () => {
-                    triggerGenerate(node);
-                }, { min: 0, max: 0xffffffffffffffff });
+                // Récupérer le widget seed standard (créé par ComfyUI depuis INPUT_TYPES)
+                const seedWidget = this.widgets?.find(w => w.name === "seed");
+                if (seedWidget) {
+                    seedWidget.callback = () => { triggerGenerate(node); };
+                }
 
                 // Stockage local des éléments
                 if (!this._friaElements) this._friaElements = [];
@@ -292,8 +293,21 @@ async function apiCall(method, path, body) {
                 container.appendChild(genBtn);
                 container.appendChild(result);
 
-                // Add as custom widget
-                this.addDOMWidget("elements_ui", "custom", container);
+                // Attendre que le DOM de la node soit prêt
+                const attachUI = () => {
+                    if (node.element) {
+                        const wrap = document.createElement("div");
+                        wrap.style.padding = "8px";
+                        wrap.appendChild(container);
+                        node.element.appendChild(wrap);
+                        if (node.setSize) {
+                            try { node.setSize([node.size[0], 180 + (container.scrollHeight || 280)]); } catch(e) {}
+                        }
+                    } else {
+                        setTimeout(attachUI, 100);
+                    }
+                };
+                setTimeout(attachUI, 100);
 
                 return r;
             };
