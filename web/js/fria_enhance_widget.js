@@ -21,16 +21,17 @@
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Cacher les widgets standards ----
+                // ---- Cacher les widgets standards (remplacés par le DOM) ----
                 const hideWidget = (n, name) => {
                     const w = n.widgets?.find(x => x.name === name);
                     if (w) {
-                        // Ne PAS mettre w.hidden = true (cacherait le port des opt. inputs)
+                        w.hidden = true;
                         w.computeSize = () => [0, -4];
                         if (w.inputEl) w.inputEl.style.display = "none";
                         if (w.parentEl) w.parentEl.style.display = "none";
                     }
                 };
+                // elements a forceInput:True — pas besoin de hideWidget
                 ["base_prompt", "prompt_type", "output_format", "preset_id", "style_id",
                  "special_instructions", "_api_config"].forEach(
                     n => hideWidget(node, n)
@@ -96,11 +97,10 @@
                 // ---- Container (flex column, result prend tout l'espace) ----
                 const container = document.createElement("div");
                 Object.assign(container.style, {
-                    width: "100%", padding: "8px", boxSizing: "border-box",
+                    width: "100%", height: "100%", padding: "8px", boxSizing: "border-box",
                     background: "#2a2a2e", borderRadius: "8px",
                     display: "flex", flexDirection: "column", gap: "6px",
-                    fontSize: "12px", color: "#ccc",
-                    flex: "1", minHeight: "280px",
+                    fontSize: "12px", color: "#ccc", overflow: "hidden",
                 });
 
                 // ---- Helper label ----
@@ -273,13 +273,14 @@
                 resultTextarea.readOnly = true;
                 container.appendChild(resultTextarea);
 
-                // ---- Intégration DOM Widget ----
+                // ---- Intégration DOM Widget (taille adaptative) ----
                 const domWidget = node.addDOMWidget("enhance_ui", "custom", container, {
                     getValue: () => "",
                     setValue: (v) => {},
+                    getMinHeight: () => 280,
+                    getMaxHeight: () => 1200,
                 });
-                domWidget.options = domWidget.options || {};
-                domWidget.options.height = 350;
+                // Pas de height fixe — le flex:1 du result et le resize ComfyUI gèrent
 
                 node._resultArea = resultTextarea;
                 node._domWidget = domWidget;
