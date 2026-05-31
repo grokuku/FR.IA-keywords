@@ -87,7 +87,7 @@ function hideWidget(node, name) {
                     if (!w) return;
                     w.value = JSON.stringify({
                         elements: node._friaElements.map(e => {
-                            if (e.type === "filter") return { type: "filter", id: e.id };
+                            if (e.type === "filter") return { type: "filter", id: e.id, name: e.name || "", author: e.author || "", is_public: !!e.is_public };
                             if (e.type === "text") return { type: "text", text: e.text };
                             return e;
                         }),
@@ -160,9 +160,8 @@ function hideWidget(node, name) {
                 };
 
                 const addFilterBtn = mkBtn("+ Add saved filter");
-                const addSemBtn = mkBtn("+ Add semantic");
+
                 tb.appendChild(addFilterBtn);
-                tb.appendChild(addSemBtn);
 
                 // ---- Liste des éléments (flex: grow, absorbe l'espace) ----
                 const listEl = document.createElement("div");
@@ -181,7 +180,7 @@ function hideWidget(node, name) {
                 function renderList() {
                     const items = node._friaElements || [];
                     if (items.length === 0) {
-                        listEl.innerHTML = "Aucun élément. Ajoutez des filtres ou une recherche sémantique.";
+                        listEl.innerHTML = "Aucun élément. Ajoutez des filtres.";
                         listEl.style.color = "#666";
                         return;
                     }
@@ -306,20 +305,6 @@ function hideWidget(node, name) {
                     } catch (err) {
                         showToast("Erreur", "Impossible de charger les filtres : " + err.message);
                     }
-                };
-
-                // ---- Add semantic ----
-                addSemBtn.onclick = () => {
-                    showPrompt("Recherche sémantique", "Entrez votre recherche :", "", (text) => {
-                        if (text && text.trim()) {
-                            node._friaElements.push({
-                                type: "text",
-                                text: text.trim(),
-                            });
-                            renderList();
-                            syncElementsWidget();
-                        }
-                    });
                 };
 
                 // ---- Random + SFW/NSFW row (hauteur fixe) ----
