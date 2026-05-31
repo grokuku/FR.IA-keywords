@@ -25,7 +25,7 @@ class FRIAEnhanceNode:
             },
             "optional": {
                 # JSON sérialisé des éléments (connecté à la sortie elements_json du Elements Picker)
-                "elements": ("STRING", {"multiline": True, "default": "[]"}),
+                "elements": ("STRING", {"forceInput": True, "multiline": True, "default": "[]"}),
                 # JSON sérialisé par le JS : api_url + api_key
                 "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             }

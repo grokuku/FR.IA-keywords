@@ -32,7 +32,7 @@
                     }
                 };
                 ["base_prompt", "prompt_type", "output_format", "preset_id", "style_id",
-                 "special_instructions", "elements", "_api_config"].forEach(
+                 "special_instructions", "_api_config"].forEach(
                     n => hideWidget(node, n)
                 );
 
