@@ -18,7 +18,7 @@ def parse_markdown(filepath: str) -> list[dict]:
             continue
 
         # Section principale : ## I. LA TÊTE ET LE VISAGE
-        m = re.match(r'^##\s+([IVX]+)[\.\s]\s+(.*)$', line)
+        m = re.match(r'^##\s+([IVXLCDM]+)[\.\s]\s+(.*)$', line)
         if m:
             current_section_id = m.group(1)
             current_section_title = m.group(2).strip()
@@ -26,7 +26,7 @@ def parse_markdown(filepath: str) -> list[dict]:
             continue
 
         # Sous-section : ### I.A — Les Cheveux ...
-        m = re.match(r'^###\s+([IVX]+\.[A-Z]+)\s*[—\-]\s+(.*)$', line)
+        m = re.match(r'^###\s+([IVXLCDM]+\.[A-Z]+)\s*[—\-]\s+(.*)$', line)
         if m:
             current_subsection_id = m.group(1)
             current_subsection_title = m.group(2).strip()

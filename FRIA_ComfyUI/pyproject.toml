@@ -1,0 +1,25 @@
+[project]
+name = "FR.IA-ComfyUI"
+version = "0.1.0"
+description = "FR.IA Elements Picker & Prompt Enhancer for ComfyUI"
+authors = [
+    {name = "Holaf", email = ""},
+]
+license = {text = "MIT"}
+requires-python = ">=3.10"
+
+[project.urls]
+Repository = "https://github.com/holaf/FR.IA-keywords"
+"ComfyUI Registry" = "https://registry.comfy.org/publishers/holaf/nodes/fr-ia-comfyui"
+
+[comfyui]
+nodes = [
+    "nodes.elements_node.FRIAElementsNode",
+    "nodes.enhance_node.FRIAEnhanceNode",
+]
+
+[tool.comfyui.registry]
+display_name = "FR.IA"
+icon = ""
+category = "Prompt/Generation"
+description = "FR.IA Elements Picker & Prompt Enhancer — générez et optimisez vos prompts d'images via l'API kw.holaf.fr"

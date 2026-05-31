@@ -106,6 +106,7 @@
               <span id="user-name" class="text-sm font-medium"></span>
               <button id="btn-admin" onclick="toggleAdmin()" class="hidden text-xs text-indigo-400 hover:text-indigo-300 transition font-medium">Admin</button>
               <button id="btn-members" onclick="toggleMembers()" class="hidden text-xs text-slate-400 hover:text-slate-300 transition font-medium">Membres</button>
+              <button onclick="toggleSettings()" class="text-xs text-slate-400 hover:text-slate-300 transition font-medium">Settings</button>
               <button onclick="logout()" class="text-xs text-slate-400 hover:text-white transition">Déconnexion</button>
             </div>
           </div>
@@ -129,14 +130,19 @@
           <!-- PANEL GAUCHE : Keywords -->
           <div id="panel-left" class="flex flex-col overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800" style="width: 50%; min-width: 200px;">
             <div class="flex items-center justify-between px-4 py-2 border-b border-slate-200/60 dark:border-slate-700/60 shrink-0">
-              <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Mots-clés</span>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Mots-clés</span>
+                <span id="keywords-loading" class="hidden">
+                  <svg class="w-3.5 h-3.5 text-indigo-500 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2a10 10 0 1 0 10 10" stroke-linecap="round"/></svg>
+                </span>
+              </div>
               <button onclick="resetFilters()" title="Reinitialiser les filtres" class="text-xs text-slate-300 hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-400 transition p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700">
                 <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
               </button>
             </div>
             <div class="flex-1 overflow-y-auto" id="panel-left-content">
               <!-- Filters -->
-              <div id="filters-bar" class="hidden mb-4">
+              <div id="filters-bar" class="hidden sticky top-0 z-10 border-b border-slate-200 bg-white dark:bg-slate-800 dark:border-slate-700 px-2 py-2">
                 <div class="flex flex-col gap-2">
                   <div class="flex flex-wrap items-center gap-2">
                     <div class="relative flex-[2] min-w-[10rem]">
@@ -253,7 +259,7 @@
                       <span id="count-label">resultats</span>
                     </p>
                   </div>
-                  <div class="overflow-x-auto overflow-y-auto scrollbar-thin" style="max-height: calc(100vh - 200px);">
+                  <div class="overflow-x-auto scrollbar-thin">
                     <table class="text-sm" style="table-layout:fixed;min-width:100%">
                       <thead class="bg-slate-50 sticky top-0 shadow-sm dark:bg-slate-800 dark:shadow-slate-700/30">
                         <tr id="table-header-row">
@@ -268,8 +274,8 @@
                   </div>
                 </div>
               </div>
+              </div>
             </div>
-          </div>
 
           <!-- SEPARATEUR VERTICAL -->
           <div id="divider-v" class="shrink-0 cursor-col-resize transition-colors" style="width: 6px;"></div>
@@ -512,6 +518,32 @@
           <div class="flex justify-end gap-2 mt-4">
             <button id="modal-generic-cancel" onclick="closeModal()" class="hidden px-3 py-1.5 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Annuler</button>
             <button id="modal-generic-ok" onclick="modalOK()" class="px-3 py-1.5 text-sm font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500">OK</button>
+          </div>
+        </div>
+      </div>
+    </div>    <!-- Modale Settings FR.IA -->
+    <div id="modal-settings" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+      <div id="settings-modal" class="bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden dark:bg-slate-800 dark:border-slate-700" style="width: 480px; position: relative;">
+        <div id="settings-modal-header" class="border-b border-slate-200 bg-slate-50 px-5 py-3 flex items-center justify-between cursor-grab dark:border-slate-700 dark:bg-slate-800/80 select-none">
+          <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Paramètres FR.IA</h2>
+          <button onclick="closeSettings()" class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700">&times;</button>
+        </div>
+        <div class="p-5 space-y-4">
+          <div>
+            <h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Connexion</h3>
+            <p class="text-sm text-slate-700 dark:text-slate-300" id="settings-user-info">Connecté en tant que <span id="settings-username" class="font-medium"></span></p>
+          </div>
+          <hr class="border-slate-200 dark:border-slate-700">
+          <div>
+            <h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Clé API</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Utilisez cette clé pour connecter ComfyUI & autres outils à votre compte.</p>
+            <div class="flex gap-2">
+              <input type="text" id="settings-api-key" readonly
+                     class="flex-1 px-3 py-2 text-xs font-mono border border-slate-300 rounded-md bg-slate-50 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+              <button onclick="copyApiKey()" class="px-3 py-2 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500 transition">Copier</button>
+              <button onclick="regenerateApiKey()" class="px-3 py-2 text-xs font-medium bg-amber-600 text-white rounded-md hover:bg-amber-500 transition">Regénérer</button>
+            </div>
+            <p id="settings-key-status" class="hidden text-xs mt-2"></p>
           </div>
         </div>
       </div>
@@ -890,7 +922,10 @@
     }
 
     async function loadKeywords() {
-      const textQ = searchInput.value.trim();
+      const kwLoading = document.getElementById('keywords-loading');
+      if (kwLoading) kwLoading.classList.remove('hidden');
+      try {
+        const textQ = searchInput.value.trim();
       const negQ = searchNegInput.value.trim();
       const semQ = semanticInput.value.trim();
       const nsfw = getNsfwFilter();
@@ -906,8 +941,27 @@
           semResults = semanticCache.results;
         }
       }
+
+      // Appliquer les filtres texte (+) et exclusion (-) aux résultats sémantiques
+      if (semResults !== null && (textQ || negQ)) {
+        const qLower = textQ.toLowerCase();
+        const negLower = negQ.toLowerCase();
+        semResults = semResults.filter(function(kw) {
+          const fields = [
+            (kw.keyword || '').toLowerCase(),
+            (kw.description || '').toLowerCase(),
+            (kw.section_title || '').toLowerCase(),
+            (kw.subsection_title || '').toLowerCase()
+          ];
+          if (qLower && !fields.some(function(f){ return f.includes(qLower); })) return false;
+          if (negLower && fields.some(function(f){ return f.includes(negLower); })) return false;
+          return true;
+        });
+      }
+
+      // Ne pas fetcher l'API texte si la sémantique est active (filtrage fait ci-dessus)
       const [textResults] = await Promise.all([
-        (textQ || negQ) ? fetchTextSearch(textQ, negQ, nsfw, section) : Promise.resolve(null),
+        (!semQ && (textQ || negQ)) ? fetchTextSearch(textQ, negQ, nsfw, section) : Promise.resolve(null),
       ]);
 
       if (semResults !== null) {
@@ -925,6 +979,9 @@
         } catch { allKeywords = []; }
       }
       renderTable(allKeywords);
+      } finally {
+        if (kwLoading) kwLoading.classList.add('hidden');
+      }
     }
 
     async function fetchTextSearch(q, q_neg, nsfw, section) {
@@ -944,7 +1001,7 @@
       try {
         const params = new URLSearchParams();
         params.append('q', q);
-        params.append('limit', '50');
+        params.append('limit', '500');
         if (section) params.append('section', section);
         if (nsfw !== '') params.append('nsfw', nsfw);
         if (confidence > 0) params.append('confidence', confidence);
@@ -1013,7 +1070,7 @@
       initColResize();
       loadColWidths();
       countDisplay.textContent = rows.length - hiddenCount;
-      countLabel.textContent = (rows.length - hiddenCount > 1 ? 'resultats' : 'resultat') + (hiddenCount > 0 ? ' (' + hiddenCount + ' masques)' : '');
+      countLabel.textContent = (rows.length - hiddenCount > 1 ? ' visibles' : ' visible') + (hiddenCount > 0 ? ' (+ ' + hiddenCount + ' masques)' : '');
     }
 
     function escapeHtml(str) {
@@ -2110,6 +2167,77 @@
 
     function closeMembers() {
       document.getElementById('members-panel').classList.add('hidden');
+    }
+
+    // === Settings (API Key) ===
+
+    function toggleSettings() {
+      var modal = document.getElementById('modal-settings');
+      var isOpen = !modal.classList.contains('hidden');
+      if (isOpen) { closeSettings(); return; }
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      makeModalDraggable('settings-modal-header', 'settings-modal');
+      loadApiKey();
+    }
+
+    function closeSettings() {
+      document.getElementById('modal-settings').classList.add('hidden');
+      document.getElementById('modal-settings').classList.remove('flex');
+      document.getElementById('settings-key-status').classList.add('hidden');
+    }
+
+    async function loadApiKey() {
+      var nameEl = document.getElementById('settings-username');
+      if (currentUser) nameEl.textContent = currentUser.display_name || currentUser.username;
+      var input = document.getElementById('settings-api-key');
+      input.value = 'Chargement...';
+      try {
+        var res = await fetch(API + '/auth/token');
+        if (!res.ok) throw new Error('Erreur ' + res.status);
+        var data = await res.json();
+        if (data.token) {
+          input.value = data.token;
+        } else {
+          input.value = 'Erreur : pas de token';
+        }
+      } catch (err) {
+        input.value = 'Erreur : ' + err.message;
+      }
+    }
+
+    async function regenerateApiKey() {
+      if (!confirm('Regénérer la clé API ? L\'ancienne clé ne fonctionnera plus.')) return;
+      var statusEl = document.getElementById('settings-key-status');
+      statusEl.className = 'text-xs mt-2 text-amber-500';
+      statusEl.textContent = 'Regénération...';
+      statusEl.classList.remove('hidden');
+      try {
+        var res = await fetch(API + '/auth/token', { method: 'POST' });
+        if (!res.ok) throw new Error('Erreur ' + res.status);
+        var data = await res.json();
+        document.getElementById('settings-api-key').value = data.token || '';
+        statusEl.className = 'text-xs mt-2 text-emerald-500';
+        statusEl.textContent = 'Nouvelle clé générée !';
+      } catch (err) {
+        statusEl.className = 'text-xs mt-2 text-rose-500';
+        statusEl.textContent = 'Erreur : ' + err.message;
+      }
+    }
+
+    function copyApiKey() {
+      var input = document.getElementById('settings-api-key');
+      input.select();
+      input.setSelectionRange(0, 99999);
+      navigator.clipboard.writeText(input.value).then(function() {
+        var statusEl = document.getElementById('settings-key-status');
+        statusEl.className = 'text-xs mt-2 text-emerald-500';
+        statusEl.textContent = 'Copié !';
+        statusEl.classList.remove('hidden');
+        setTimeout(function() { statusEl.classList.add('hidden'); }, 2000);
+      }).catch(function() {
+        document.execCommand('copy');
+      });
     }
 
     async function loadMembersList() {

@@ -234,7 +234,7 @@ def _init_db():
         conn.execute("ALTER TABLE keywords ADD COLUMN user_id TEXT REFERENCES users(id)")
 
     cols_users = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
-    for col, default in [("role", "'user'"), ("settings", "'{}'"), ("guild_nickname", "NULL")]:
+    for col, default in [("role", "'user'"), ("settings", "'{}'"), ("guild_nickname", "NULL"), ("api_token", "NULL")]:
         if col not in cols_users:
             conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT DEFAULT {default}")
 
@@ -497,6 +497,40 @@ def discord_logout():
     """Déconnecte l'utilisateur."""
     session.clear()
     return jsonify({"status": "ok"})
+
+
+@app.route('/api/auth/token', methods=['GET', 'POST'])
+def api_token():
+    """Gérer la clé API de l'utilisateur connecté."""
+    guard = _login_required()
+    if guard:
+        return guard
+    user_id = _get_current_user_id()
+    conn = get_db()
+
+    if request.method == 'POST':
+        # Régénérer le token
+        import secrets
+        new_token = 'fr_ia_' + secrets.token_hex(24)
+        conn.execute("UPDATE users SET api_token = ? WHERE id = ?", (new_token, user_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'token': new_token})
+
+    # GET : retourner le token existant (ou en créer un)
+    cur = conn.execute("SELECT api_token FROM users WHERE id = ?", (user_id,))
+    row = cur.fetchone()
+    if row and row['api_token']:
+        conn.close()
+        return jsonify({'token': row['api_token']})
+
+    # Pas de token → en créer un
+    import secrets
+    new_token = 'fr_ia_' + secrets.token_hex(24)
+    conn.execute("UPDATE users SET api_token = ? WHERE id = ?", (new_token, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'token': new_token})
 
 
 # ── API keywords ─────────────────────────────────────────────────────
@@ -1043,7 +1077,7 @@ def _rebuild_filter_cache(cur, filter_id, config):
         try:
             from embeddings import generate_embedding, cosine_similarity
             qe = generate_embedding(semantic_text)
-            # Pré-filtrer section/nsfw/hidden_ids dans la requête SQL
+            # Pré-filtrer section/nsfw dans la requête SQL (hidden_ids appliqué APRES la limite)
             sem_conds = ["1=1"]
             sem_params = []
             if section:
@@ -1053,23 +1087,37 @@ def _rebuild_filter_cache(cur, filter_id, config):
                 sem_conds.append("k.nsfw = 0")
             elif nsfw == '1':
                 sem_conds.append("k.nsfw = 1")
-            if hidden_ids and isinstance(hidden_ids, list) and len(hidden_ids) > 0:
-                ph = ','.join('?' for _ in hidden_ids)
-                sem_conds.append(f"k.id NOT IN ({ph})")
-                sem_params.extend(hidden_ids)
             sem_where = " AND ".join(sem_conds)
-            cur.execute(f"SELECT k.id, ke.embedding, k.keyword, k.description FROM keywords k JOIN keyword_embeddings ke ON ke.keyword_id = k.id WHERE {sem_where}", sem_params)
-            # Calculer scores, filtrer, trier, limiter (identique à l'API /api/search/semantic)
+            cur.execute(f"SELECT k.id, ke.embedding, k.keyword, k.description, k.section_title, k.subsection_title FROM keywords k JOIN keyword_embeddings ke ON ke.keyword_id = k.id WHERE {sem_where}", sem_params)
+            # Calculer scores, filtrer, trier, limiter
             scored = []
+            q_lower = search_text.lower() if search_text else ''
+            neg_lower = search_neg.lower() if search_neg else ''
             for r in cur.fetchall():
                 emb = json.loads(r['embedding'])
                 sim = cosine_similarity(qe, emb)
                 if sim < min_confidence:
                     continue
+                # Appliquer texte (+) et exclusion (-) sur 4 champs (identique à loadKeywords)
+                if q_lower or neg_lower:
+                    fields = [
+                        (r['keyword'] or '').lower(),
+                        (r['description'] or '').lower(),
+                        (r['section_title'] or '').lower(),
+                        (r['subsection_title'] or '').lower()
+                    ]
+                    if q_lower and not any(q_lower in f for f in fields):
+                        continue
+                    if neg_lower and any(neg_lower in f for f in fields):
+                        continue
                 scored.append((r['id'], sim))
             scored.sort(key=lambda x: x[1], reverse=True)
-            for kid, _ in scored[:50]:  # même limite que l'API
-                cur.execute("INSERT OR IGNORE INTO filter_cache (filter_id, keyword_id) VALUES (?, ?)", (filter_id, kid))
+            # Prendre le top 500 (même ensemble que l'API), puis filtrer les masqués (comme renderTable)
+            top = scored[:500]
+            hidden_set = set(hidden_ids) if hidden_ids and isinstance(hidden_ids, list) else set()
+            for kid, _ in top:
+                if kid not in hidden_set:
+                    cur.execute("INSERT OR IGNORE INTO filter_cache (filter_id, keyword_id) VALUES (?, ?)", (filter_id, kid))
         except Exception as e:
             print(f"[_rebuild_filter_cache] Erreur branche semantique filtre {filter_id}: {e}")
         return
