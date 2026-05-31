@@ -43,4 +43,13 @@ if _enhance_mod and hasattr(_enhance_mod, "FRIAEnhanceNode"):
     NODE_CLASS_MAPPINGS["FRIAEnhanceNode"] = cls
     NODE_DISPLAY_NAME_MAPPINGS["FRIAEnhanceNode"] = "FR.IA Prompt Enhancer"
 
+# Charger le serveur proxy (routes /fria/*)
+_server_path = os.path.join(_base, "FRIA_ComfyUI", "server.py")
+if os.path.exists(_server_path):
+    try:
+        _load_module(_server_path, "FRIA_Server")
+        print("[FR.IA] Proxy server routes registered (/fria/*)")
+    except Exception as e:
+        print(f"[FR.IA] Proxy server not loaded: {e}")
+
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]

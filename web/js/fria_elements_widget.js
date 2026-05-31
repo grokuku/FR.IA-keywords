@@ -9,16 +9,10 @@
  */
 
 const STORAGE_KEY = "FRIA_config";
-const ELEMENTS_KEY = "FRIA_elements_state";
 
 function getConfig() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
     catch { return {}; }
-}
-
-function getApiUrl() {
-    const cfg = getConfig();
-    return (cfg.serverUrl || "https://kw.holaf.fr/api").replace(/\/+$/, "");
 }
 
 function getApiKey() {
@@ -30,6 +24,21 @@ function apiHeaders() {
     const key = getApiKey();
     if (key) h["Authorization"] = `Bearer ${key}`;
     return h;
+}
+
+/**
+ * Appelle l'API via le proxy ComfyUI (/fria/*) pour éviter le CORS.
+ * Le proxy forwarde vers kw.holaf.fr/api/<path>.
+ */
+async function apiCall(method, path, body) {
+    const opts = { method, headers: apiHeaders() };
+    if (body) opts.body = JSON.stringify(body);
+    const resp = await fetch(`/fria/${path.replace(/^\//, "")}`, opts);
+    if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        throw new Error(`HTTP ${resp.status}: ${txt.substring(0, 200)}`);
+    }
+    return resp.json();
 }
 
 // Attendre que l'app ComfyUI soit disponible
@@ -152,9 +161,7 @@ function apiHeaders() {
                 // ---- Add saved filter ----
                 addFilterBtn.onclick = async () => {
                     try {
-                        const resp = await fetch(`${getApiUrl()}/filters`, { headers: apiHeaders() });
-                        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                        const filters = await resp.json();
+                        const filters = await apiCall("GET", "filters");
                         showFilterPicker(filters, (filter) => {
                             this._friaElements.push({
                                 type: "filter",
@@ -244,16 +251,7 @@ function apiHeaders() {
                     resultArea.value = "Génération en cours...";
 
                     try {
-                        const resp = await fetch(`${getApiUrl()}/generate`, {
-                            method: "POST",
-                            headers: apiHeaders(),
-                            body: JSON.stringify(payload),
-                        });
-                        if (!resp.ok) {
-                            const err = await resp.text();
-                            throw new Error(err.substring(0, 200));
-                        }
-                        const data = await resp.json();
+                        const data = await apiCall("POST", "generate", payload);
                         const prompt = data.prompt || "";
                         resultArea.value = prompt;
 
