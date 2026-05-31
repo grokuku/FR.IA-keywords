@@ -1,6 +1,7 @@
 /**
  * FR.IA — Menu & Settings extension for ComfyUI.
  * Adds a [FR.IA] button to the menu bar with dropdown options.
+ * Pattern inspiré de Holaf Utilities (CUI-Holaf-Utils).
  */
 
 const STORAGE_KEY = "FRIA_config";
@@ -14,7 +15,7 @@ function setConfig(cfg) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
 }
 
-// Wait for ComfyUI app to be available, then register
+// Wait for ComfyUI app to be available
 (function waitForApp() {
     const app = window.app || window.comfyAPI?.app?.app;
     if (!app) {
@@ -25,33 +26,45 @@ function setConfig(cfg) {
     app.registerExtension({
         name: "FR.IA.Menu",
         async setup() {
-            setTimeout(initMenu, 50);
+            setTimeout(() => initMenu(app), 50);
         }
     });
 })();
 
-function initMenu() {
-    const menu = document.querySelector(".comfy-menu");
-    if (!menu) {
-        setTimeout(initMenu, 300);
+function initMenu(appInstance) {
+    // Référence : CUI-Holaf-Utils cherche settingsButton dans app.menu
+    const settingsButton = appInstance?.menu?.settingsGroup?.element;
+    if (!settingsButton) {
+        setTimeout(() => initMenu(appInstance), 300);
         return;
     }
 
-    // --- Bouton FR.IA ---
+    // Wrapper contenant le bouton + dropdown
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "relative";
+    wrapper.style.display = "inline-block";
+    wrapper.style.margin = "0 4px";
+
+    // Bouton principal
     const btn = document.createElement("button");
     btn.textContent = "FR.IA ▾";
     Object.assign(btn.style, {
         background: "#6366f1", color: "white", border: "none",
         padding: "4px 12px", borderRadius: "6px", cursor: "pointer",
-        fontSize: "13px", fontWeight: "600", margin: "0 4px",
+        fontSize: "13px", fontWeight: "600",
     });
 
-    // --- Dropdown ---
+    // Dropdown menu
     const dd = document.createElement("div");
+    dd.id = "fria-dropdown-menu";
+    dd.style.display = "none";
+    dd.style.zIndex = "10005";
+
+    // Appliquer le style du dropdown via une classe ou en inline
     Object.assign(dd.style, {
-        display: "none", position: "absolute", top: "100%", left: "0",
+        position: "absolute", top: "100%", left: "0",
         background: "#2a2a2e", border: "1px solid #444", borderRadius: "8px",
-        minWidth: "200px", zIndex: "9999", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+        minWidth: "200px", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
     });
 
     const mkItem = (txt, icon, cb) => {
@@ -76,18 +89,24 @@ function initMenu() {
     paramsItem.style.borderBottom = "none";
     dd.appendChild(paramsItem);
 
-    const wrapper = document.createElement("div");
-    Object.assign(wrapper.style, { position: "relative", display: "inline-block" });
     wrapper.appendChild(btn);
     wrapper.appendChild(dd);
 
+    // Toggle dropdown
     btn.onclick = (e) => {
         e.stopPropagation();
-        dd.style.display = dd.style.display === "none" ? "block" : "none";
+        dd.style.display = dd.style.display === "block" ? "none" : "block";
     };
-    document.addEventListener("click", () => dd.style.display = "none");
 
-    menu.appendChild(wrapper);
+    // Fermer au clic ailleurs
+    document.addEventListener("click", (e) => {
+        if (dd.style.display === "block" && !wrapper.contains(e.target)) {
+            dd.style.display = "none";
+        }
+    });
+
+    // Insérer avant le bouton Settings (comme la référence)
+    settingsButton.parentNode.insertBefore(wrapper, settingsButton);
     console.log("[FR.IA] Menu initialized");
 }
 
