@@ -214,11 +214,15 @@
                     const basePrompt = basePromptTextarea.value;
                     const elemsW = node.widgets?.find(w => w.name === "elements");
                     let elems = [];
+                    let elemsRaw = "";
                     try {
                         const p = JSON.parse(elemsW?.value || "[]");
                         if (Array.isArray(p)) elems = p;
                         else if (p?.elements) elems = p.elements;
-                    } catch {}
+                    } catch {
+                        // Pas du JSON → texte brut
+                        elemsRaw = elemsW?.value || "";
+                    }
 
                     function fmtElems(elist) {
                         return elist.map(e => {
@@ -228,8 +232,8 @@
                             return "";
                         }).filter(Boolean).join("\n");
                     }
-                    const elemsText = fmtElems(elems);
-                    const combinedText = elemsText ? elemsText + "\n\n" + basePrompt : basePrompt;
+                    const parts = [fmtElems(elems), elemsRaw, basePrompt].filter(Boolean);
+                    const combinedText = parts.join("\n\n");
 
                     if (!basePrompt && elems.length === 0) {
                         resultTextarea.value = "Entrez un prompt de base ou connectez des éléments.";

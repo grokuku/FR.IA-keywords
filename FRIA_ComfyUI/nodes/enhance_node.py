@@ -46,6 +46,9 @@ class FRIAEnhanceNode:
         api_key = api_cfg.get("api_key", "")
 
         # Parse elements JSON (soit un tableau direct, soit l'objet _elements_json complet)
+        # Si ce n'est pas du JSON, c'est du texte brut (ex: sortie "elements" du Picker)
+        elems = []
+        elems_raw = ""
         try:
             elems_parsed = json.loads(elements) if elements else []
             if isinstance(elems_parsed, dict):
@@ -53,11 +56,12 @@ class FRIAEnhanceNode:
             elif isinstance(elems_parsed, list):
                 elems = elems_parsed
             else:
-                elems = []
-        except json.JSONDecodeError:
-            elems = []
+                pass
+        except (json.JSONDecodeError, TypeError):
+            # Pas du JSON → texte brut
+            elems_raw = elements or ""
 
-        # Transformer les éléments en texte et les coller au prompt
+        # Transformer les éléments structurés en texte
         def _fmt_elems(elist):
             lines = []
             for e in elist:
@@ -71,10 +75,9 @@ class FRIAEnhanceNode:
             return "\n".join(lines)
 
         elems_text = _fmt_elems(elems)
-        if elems_text:
-            combined_text = f"{elems_text}\n\n{base_prompt}"
-        else:
-            combined_text = base_prompt
+        # Concaténer : éléments formatés + texte brut + prompt de base
+        parts = [p for p in [elems_text, elems_raw, base_prompt] if p]
+        combined_text = "\n\n".join(parts)
 
         # Construire le payload pour /api/enhance
         payload = {
