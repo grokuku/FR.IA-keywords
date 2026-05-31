@@ -142,8 +142,24 @@ async function checkServerStatus(el) {
             try { user = await meResp.json(); } catch {}
         }
 
-        if (user && user.display_name) {
-            el.textContent = `🟢  Connecté en tant que : ${user.display_name}`;
+        // Vider le contenu précédent
+        el.innerHTML = "";
+
+        if (user && (user.display_name || user.username)) {
+            const name = user.display_name || user.username || "?";
+            // Ligne 1 : statut + pseudo
+            const line1 = document.createElement("div");
+            line1.textContent = `🟢  ${name}`;
+            line1.style.cssText = "display:flex;align-items:center;gap:6px;";
+            el.appendChild(line1);
+            // Ligne 2 : avatar si dispo
+            const avatarUrl = user.avatar_url || (user.avatar && user.id ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=32` : null);
+            if (avatarUrl) {
+                const img = document.createElement("img");
+                img.src = avatarUrl;
+                img.style.cssText = "width:24px;height:24px;border-radius:50%;vertical-align:middle;margin:2px 0 0 24px;";
+                el.appendChild(img);
+            }
             el.style.color = "#4ade80";
         } else if (serverOk) {
             el.textContent = "🟢  Serveur en ligne (non connecté)";

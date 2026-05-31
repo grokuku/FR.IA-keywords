@@ -43,13 +43,15 @@ async function apiCall(method, path, body) {
     return resp.json();
 }
 
-// Cacher un widget ComfyUI : il reste dans node.widgets mais n'est plus rendu
+// Cacher un widget ComfyUI : reste dans node.widgets (sérialisé) mais invisible dans l'UI.
+// IMPORTANT : ne PAS changer widget.type en "hidden" car ComfyUI le
+// désérialiserait à vide. On utilise uniquement widget.hidden = true
+// et on réduit sa hauteur à 0.
 function hideWidget(node, name) {
     const w = node.widgets?.find(x => x.name === name);
     if (w) {
         w.hidden = true;
-        w.origType = w.type;
-        w.type = "hidden";
+        w.computeSize = () => [0, -4]; // hauteur négative = ligne compressée
         return w;
     }
     return null;
@@ -193,8 +195,14 @@ function hideWidget(node, name) {
                         });
                         const label = document.createElement("span");
                         label.style.flex = "1";
+                        label.style.overflow = "hidden";
+                        label.style.textOverflow = "ellipsis";
+                        label.style.whiteSpace = "nowrap";
                         if (item.type === "filter") {
-                            label.textContent = `🔽 ${item.name || `Filtre #${item.id}`}`;
+                            const parts = [`🔽 ${item.name || `Filtre #${item.id}`}`];
+                            if (item.author) parts.push(`(${item.author})`);
+                            parts.push(item.is_public ? "🌐" : "🔒");
+                            label.textContent = parts.join(" ");
                         } else {
                             label.textContent = `🧠 ${item.text || "?"}`;
                         }
@@ -230,6 +238,8 @@ function hideWidget(node, name) {
                                 type: "filter",
                                 id: filter.id,
                                 name: filter.name,
+                                author: filter.user_id === currentUserId ? "vous" : (filter.owner_name || filter.user_id?.substring(0,6) || "?"),
+                                is_public: !!filter.is_public,
                             });
                             renderList();
                             syncElementsWidget();
@@ -405,15 +415,27 @@ function hideWidget(node, name) {
             };
 
             // ---- onExecuted : mettre à jour le textarea quand ComfyUI exécute la node ----
+            // ComfyUI passe le résultat à onExecuted. Le format peut varier :
+            //   - Objet : { elements: "text" } (par RETURN_NAMES)
+            //   - Array : ["text"] (par position)
             const onExecuted = nodeType.prototype.onExecuted;
             nodeType.prototype.onExecuted = function (output) {
                 onExecuted?.apply(this, arguments);
-                if (output && output.elements !== undefined) {
-                    const text = Array.isArray(output.elements)
-                        ? output.elements.join("")
-                        : String(output.elements);
+
+                let text = null;
+                if (output) {
+                    // Format objet : { elements: "text" }
+                    if (typeof output === 'object' && !Array.isArray(output)) {
+                        if (output.elements !== undefined) text = output.elements;
+                    }
+                    // Format array : ["text"]
+                    if (Array.isArray(output) && output.length > 0) text = output[0];
+                }
+
+                if (text !== null && text !== undefined) {
+                    const str = Array.isArray(text) ? text.join("") : String(text);
                     if (this._resultArea) {
-                        this._resultArea.value = text;
+                        this._resultArea.value = str;
                     }
                 }
             };

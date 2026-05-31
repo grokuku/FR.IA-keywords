@@ -527,7 +527,13 @@ def auth_me():
             ).fetchone()
             conn.close()
             if row:
-                return jsonify(dict(row))
+                d = dict(row)
+                # Construire l'URL de l'avatar Discord
+                if d.get('avatar') and d.get('id'):
+                    d['avatar_url'] = f"https://cdn.discordapp.com/avatars/{d['id']}/{d['avatar']}.png?size=64"
+                else:
+                    d['avatar_url'] = ''
+                return jsonify(d)
         except Exception:
             pass
     return jsonify({"error": "Non connecté"}), 401
