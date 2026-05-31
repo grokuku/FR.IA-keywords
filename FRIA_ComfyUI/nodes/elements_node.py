@@ -31,8 +31,8 @@ class FRIAElementsNode:
             }
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("elements",)
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("elements", "elements_json")
 
     def generate(self, seed, _elements_json="{}", _api_config="{}"):
         try:
@@ -42,7 +42,7 @@ class FRIAElementsNode:
             msg = "Erreur : config JSON invalide"
             return {
                 "ui": {"elements": [msg]},
-                "result": (msg,)
+                "result": (msg, _elements_json)
             }
 
         api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
@@ -54,7 +54,7 @@ class FRIAElementsNode:
         if not elements and random_count <= 0:
             return {
                 "ui": {"elements": ["⚠️ Aucun filtre sélectionné. Ajoutez des filtres dans la liste."]},
-                "result": ("⚠️ Aucun filtre sélectionné. Ajoutez des filtres dans la liste.",)
+                "result": ("⚠️ Aucun filtre sélectionné. Ajoutez des filtres dans la liste.", _elements_json)
             }
 
         # Construire le payload pour /api/generate
@@ -78,13 +78,13 @@ class FRIAElementsNode:
             prompt = data.get("prompt", "")
             return {
                 "ui": {"elements": [prompt]},
-                "result": (prompt,)
+                "result": (prompt, _elements_json)
             }
         except ImportError:
             msg = "Erreur : module 'requests' manquant. pip install requests"
             return {
                 "ui": {"elements": [msg]},
-                "result": (msg,)
+                "result": (msg, _elements_json)
             }
         except Exception as e:
             msg = str(e)
@@ -96,5 +96,5 @@ class FRIAElementsNode:
                 msg = f"Erreur API : {msg}"
             return {
                 "ui": {"elements": [msg]},
-                "result": (msg,)
+                "result": (msg, _elements_json)
             }
