@@ -60,7 +60,7 @@ async function apiCall(method, path, body) {
                 this._resultWidget = this.addWidget("hidden", "_result", "", () => {});
 
                 // Widget seed standard (INT nommé "seed" → ComfyUI ajoute les contrôles)
-                const seedWidget = this.addWidget("INT", "seed", 0, () => {
+                const seedWidget = this.addWidget("number", "seed", 0, () => {
                     triggerGenerate(node);
                 }, { min: 0, max: 0xffffffffffffffff });
 
@@ -247,8 +247,9 @@ async function apiCall(method, path, body) {
                     const sw = n.widgets?.find(w => w.name === "seed");
                     const seed = sw ? parseInt(sw.value) || 0 : 0;
 
-                    // Construire le payload
-                    const payload = { elements: [], seed: seed };
+                    // Construire le payload (seed=0 = aléatoire, seed>0 = déterministe)
+                    const payload = { elements: [] };
+                    if (seed > 0) payload.seed = seed;
 
                     elements.forEach(e => {
                         if (e.type === "filter") payload.elements.push({ type: "filter", id: e.id });
