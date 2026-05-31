@@ -71,16 +71,12 @@ function hideWidget(node, name) {
                 const node = this;
 
                 // ---- Masquer les widgets sérialisés (_elements_json, _api_config) ----
-                // Ils sont dans "optional" de INPUT_TYPES, ComfyUI les crée automatiquement.
-                // On les cache pour qu'ils ne polluent pas l'UI, mais leur valeur
-                // reste sérialisée dans le workflow → lisible par Python au run.
                 hideWidget(node, "_elements_json");
                 hideWidget(node, "_api_config");
 
-                // Le widget seed est géré nativement par ComfyUI (avec control_after_generate).
-                // On ne touche PAS à son callback.
+                // Le widget seed est géré nativement par ComfyUI.
 
-                // Stockage local des éléments (UI state, pas sérialisé directement)
+                // Stockage local des éléments
                 if (!node._friaElements) node._friaElements = [];
 
                 // ---- Sync les widgets sérialisés ----
@@ -109,18 +105,33 @@ function hideWidget(node, name) {
                 // Sync initial
                 syncApiConfigWidget();
 
-                // ---- UI Container ----
+                // ========================================
+                // LAYOUT : flex column, la liste s'étend,
+                // le résultat est fixé en bas
+                // ========================================
+
                 const container = document.createElement("div");
                 Object.assign(container.style, {
-                    width: "100%", minHeight: "280px",
-                    background: "#2a2a2e", borderRadius: "8px",
-                    padding: "8px", boxSizing: "border-box",
-                    fontSize: "12px", color: "#ccc",
+                    width: "100%",
+                    height: "100%",         // Remplit l'espace alloué par ComfyUI
+                    minHeight: "280px",
+                    background: "#2a2a2e",
+                    borderRadius: "8px",
+                    padding: "8px",
+                    boxSizing: "border-box",
+                    fontSize: "12px",
+                    color: "#ccc",
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
                 });
 
-                // ---- Toolbar ----
+                // ---- Toolbar (hauteur fixe) ----
                 const tb = document.createElement("div");
-                Object.assign(tb.style, { display: "flex", gap: "4px", marginBottom: "8px" });
+                Object.assign(tb.style, {
+                    display: "flex", gap: "4px", marginBottom: "8px",
+                    flex: "0 0 auto",
+                });
 
                 const mkBtn = (text, primary) => {
                     const b = document.createElement("button");
@@ -149,12 +160,18 @@ function hideWidget(node, name) {
                 tb.appendChild(addFilterBtn);
                 tb.appendChild(addSemBtn);
 
-                // ---- Liste des éléments ----
+                // ---- Liste des éléments (flex: grow, absorbe l'espace) ----
                 const listEl = document.createElement("div");
                 Object.assign(listEl.style, {
-                    minHeight: "60px", maxHeight: "120px", overflowY: "auto",
-                    marginBottom: "8px", border: "1px dashed #555",
-                    borderRadius: "4px", padding: "4px", fontSize: "11px", color: "#666",
+                    flex: "1 1 0",           // Prend tout l'espace dispo
+                    minHeight: "40px",       // Hauteur mini pour être utilisable
+                    overflowY: "auto",
+                    marginBottom: "8px",
+                    border: "1px dashed #555",
+                    borderRadius: "4px",
+                    padding: "4px",
+                    fontSize: "11px",
+                    color: "#666",
                 });
 
                 function renderList() {
@@ -236,10 +253,11 @@ function hideWidget(node, name) {
                     });
                 };
 
-                // ---- Random row ----
+                // ---- Random row (hauteur fixe) ----
                 const randRow = document.createElement("div");
                 Object.assign(randRow.style, {
                     display: "flex", gap: "8px", alignItems: "center", marginBottom: "8px",
+                    flex: "0 0 auto",
                 });
 
                 const randCb = document.createElement("input");
@@ -268,20 +286,20 @@ function hideWidget(node, name) {
                 randRow.appendChild(document.createTextNode(" N:"));
                 randRow.appendChild(randN);
 
-                // Sync elements widget quand random change
                 randCb.onchange = () => { syncElementsWidget(); };
                 randN.onchange = () => { syncElementsWidget(); };
                 randN.oninput = () => { syncElementsWidget(); };
 
-                // ---- Test generation button ----
+                // ---- Test generation button (hauteur fixe) ----
                 const genBtn = mkBtn("🔄  Test generation", true);
                 genBtn.style.width = "100%";
                 genBtn.style.padding = "6px";
                 genBtn.style.marginBottom = "8px";
+                genBtn.style.flex = "0 0 auto";
 
                 genBtn.onclick = () => triggerGenerate(node);
 
-                // ---- triggerGenerate : appelle l'API avec le seed courant ----
+                // ---- triggerGenerate ----
                 function triggerGenerate(n) {
                     const elements = n._friaElements || [];
 
@@ -312,7 +330,6 @@ function hideWidget(node, name) {
                     apiCall("POST", "generate", payload).then(data => {
                         const prompt = data.prompt || "";
                         result.value = prompt;
-                        // Synchroniser les widgets sérialisés pour le prochain run
                         syncElementsWidget();
                         syncApiConfigWidget();
                     }).catch(err => {
@@ -320,36 +337,67 @@ function hideWidget(node, name) {
                     });
                 }
 
-                // ---- Result area ----
+                // ---- Result area (hauteur fixe, calée en bas, pas de resize) ----
                 const result = document.createElement("textarea");
                 Object.assign(result.style, {
-                    width: "100%", minHeight: "50px", borderRadius: "4px",
-                    border: "1px solid #555", padding: "4px",
-                    background: "#1a1a1e", color: "#fff",
-                    fontSize: "11px", resize: "vertical", boxSizing: "border-box",
+                    width: "100%",
+                    height: "54px",            // Hauteur fixe
+                    minHeight: "54px",
+                    maxHeight: "54px",
+                    borderRadius: "4px",
+                    border: "1px solid #555",
+                    padding: "4px",
+                    background: "#1a1a1e",
+                    color: "#fff",
+                    fontSize: "11px",
+                    resize: "none",            // PAS de resize
+                    boxSizing: "border-box",
+                    flex: "0 0 auto",          // Ne s'étend pas, fixé en bas
                 });
                 result.placeholder = "Résultat...";
                 result.readOnly = true;
 
                 // ---- Assemble ----
-                container.appendChild(tb);
-                container.appendChild(listEl);
-                container.appendChild(randRow);
-                container.appendChild(genBtn);
-                container.appendChild(result);
+                container.appendChild(tb);        // fixe
+                container.appendChild(listEl);    // flex: grow
+                container.appendChild(randRow);   // fixe
+                container.appendChild(genBtn);    // fixe
+                container.appendChild(result);     // fixe en bas
 
-                // Intégrer le container dans le layout ComfyUI via addDOMWidget
+                // Intégrer dans le layout ComfyUI via addDOMWidget
                 const domWidget = node.addDOMWidget("elements_ui", "custom", container, {
                     getValue: () => "",
                     setValue: (v) => {},
                 });
                 domWidget.options = domWidget.options || {};
-                domWidget.options.height = 340;
+                domWidget.options.height = 300;
 
-                // Stocker la référence au textarea sur la node pour onExecuted
+                // ---- Taille minimum de la node ----
+                // On force la node à ne pas pouvoir être plus petite
+                // que ce que nécessite le contenu JS
+                const MIN_WIDTH = 320;
+                const MIN_WIDGET_HEIGHT = 300;
+
+                // Appliquer la taille initiale
+                requestAnimationFrame(() => {
+                    if (node.size) {
+                        node.size[0] = Math.max(node.size[0], MIN_WIDTH);
+                    }
+                });
+
+                // Intercepter le resize pour imposer un minimum
+                const origOnResize = node.onResize;
+                node.onResize = function (size) {
+                    if (origOnResize) origOnResize.call(this, size);
+                    // Forcer la largeur minimum
+                    if (size[0] < MIN_WIDTH) size[0] = MIN_WIDTH;
+                };
+
+                // Stocker les refs
                 node._resultArea = result;
+                node._domWidget = domWidget;
 
-                // Sync initial des widgets
+                // Sync initial
                 syncElementsWidget();
                 syncApiConfigWidget();
 
@@ -374,7 +422,7 @@ function hideWidget(node, name) {
 })();
 
 // ========================
-// Utilitaires : modales et toasts
+// Utilitaires : modales et toots
 // ========================
 
 function showFilterPicker(filters, currentUserId, onSelect) {
