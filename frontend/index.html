@@ -585,6 +585,46 @@
               <button onclick="clearPresetForm()" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md">Nouveau</button>
             </div>
           </div>
+
+          <!-- Templates section -->
+          <hr class="border-slate-200 dark:border-slate-700">
+          <div>
+            <h3 class="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">TEMPLATES PROMPT</h3>
+            <div class="space-y-2">
+              <div class="flex gap-2">
+                <select id="tmpl-type" class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+                  <option value="sdxl">SDXL</option>
+                  <option value="sd15">SD 1.5</option>
+                  <option value="flux">Flux</option>
+                  <option value="anima">Anima</option>
+                  <option value="qwen">Qwen</option>
+                  <option value="liste">Liste</option>
+                </select>
+                <select id="tmpl-format" class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+                  <option value="text">Texte brut</option>
+                  <option value="markdown">Markdown</option>
+                  <option value="json">JSON</option>
+                </select>
+              </div>
+              <div class="text-xs text-slate-400">
+                Template : <span id="tmpl-source-label">par défaut</span>
+                <button onclick="resetTemplate()" class="text-indigo-500 hover:text-indigo-700 ml-2">↻ Réinitialiser</button>
+              </div>
+              <textarea id="tmpl-system-prompt" rows="8"
+                class="w-full text-xs font-mono border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200"
+                placeholder="System prompt pour le LLM..."></textarea>
+              <div>
+                <p class="text-xs text-slate-500 mb-1">Exemples (un par ligne) :</p>
+                <textarea id="tmpl-examples" rows="3"
+                  class="w-full text-xs font-mono border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200"
+                  placeholder="Colle un exemple par ligne..."></textarea>
+              </div>
+              <div class="flex gap-2">
+                <button onclick="saveTemplate()" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500">Sauvegarder</button>
+                <button onclick="loadTemplate()" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md">Recharger</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>    <!-- Modale Styles -->
@@ -1620,6 +1660,89 @@
         showModal('Erreur', (e.error || e.message || 'Impossible de lister les modeles'), 'error');
       }
     }
+
+    // -- Templates Prompt --
+
+    var _tmplCache = {};
+
+    async function loadTemplate() {
+      var pt = document.getElementById('tmpl-type').value;
+      var fmt = document.getElementById('tmpl-format').value;
+      var sysEl = document.getElementById('tmpl-system-prompt');
+      var exEl = document.getElementById('tmpl-examples');
+      var lbl = document.getElementById('tmpl-source-label');
+      try {
+        var res = await fetch(API + '/prompts/templates?prompt_type=' + pt + '&output_format=' + fmt);
+        var list = await safeJson(res);
+        var tmpl = list.find(function(t){ return t.editable; }) || list.find(function(t){ return t.is_default; });
+        if (tmpl) {
+          sysEl.value = tmpl.system_prompt || '';
+          exEl.value = (tmpl.examples || []).join('\n');
+          lbl.textContent = tmpl.editable ? 'personnalise' : 'par defaut';
+          _tmplCache[pt + ':' + fmt] = tmpl;
+        } else {
+          sysEl.value = '';
+          exEl.value = '';
+          lbl.textContent = 'aucun';
+          _tmplCache[pt + ':' + fmt] = null;
+        }
+      } catch (err) {
+        showModal('Erreur', 'Impossible de charger le template: ' + err.message, 'error');
+      }
+    }
+
+    async function saveTemplate() {
+      var pt = document.getElementById('tmpl-type').value;
+      var fmt = document.getElementById('tmpl-format').value;
+      var sysEl = document.getElementById('tmpl-system-prompt');
+      var exEl = document.getElementById('tmpl-examples');
+      var examples = exEl.value.split('\n').map(function(s){ return s.trim(); }).filter(function(s){ return s; });
+      try {
+        var res = await fetch(API + '/prompts/templates', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            prompt_type: pt,
+            output_format: fmt,
+            system_prompt: sysEl.value,
+            examples: examples
+          })
+        });
+        if (!res.ok) throw await safeJson(res);
+        showModal('Template', 'Template personnalise sauvegarde !', 'success');
+        loadTemplate();
+      } catch (err) {
+        showModal('Erreur', 'Impossible de sauvegarder: ' + err.message, 'error');
+      }
+    }
+
+    async function resetTemplate() {
+      var pt = document.getElementById('tmpl-type').value;
+      var fmt = document.getElementById('tmpl-format').value;
+      var cached = _tmplCache[pt + ':' + fmt];
+      if (cached && cached.editable && cached.id) {
+        try {
+          await fetch(API + '/prompts/templates/' + cached.id, { method: 'DELETE' });
+        } catch {}
+      }
+      try {
+        var res = await fetch(API + '/prompts/templates/defaults');
+        var defaults = await safeJson(res);
+        var def = defaults.find(function(t){ return t.prompt_type === pt && t.output_format === fmt; });
+        if (def) {
+          document.getElementById('tmpl-system-prompt').value = def.system_prompt || '';
+          document.getElementById('tmpl-examples').value = (def.examples || []).join('\n');
+          document.getElementById('tmpl-source-label').textContent = 'par defaut';
+          _tmplCache[pt + ':' + fmt] = def;
+        }
+      } catch {}
+    }
+
+    document.addEventListener('change', function(e) {
+      if (e.target.id === 'tmpl-type' || e.target.id === 'tmpl-format') {
+        loadTemplate();
+      }
+    });
 
     // -- Styles --
 

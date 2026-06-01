@@ -228,6 +228,22 @@ def _init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS prompt_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            prompt_type TEXT NOT NULL,
+            output_format TEXT NOT NULL DEFAULT 'text',
+            system_prompt TEXT NOT NULL DEFAULT '',
+            examples TEXT NOT NULL DEFAULT '[]',
+            is_default INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(user_id, prompt_type, output_format)
+        )
+    """)
+
     # Migrations : ajout de colonnes si absentes
     cols_kw = [r[1] for r in conn.execute("PRAGMA table_info(keywords)").fetchall()]
     if "user_id" not in cols_kw:
@@ -245,6 +261,205 @@ def _init_db():
     cols_styles = [r[1] for r in conn.execute("PRAGMA table_info(styles)").fetchall()]
     if "negative_prompt" not in cols_styles:
         conn.execute("ALTER TABLE styles ADD COLUMN negative_prompt TEXT DEFAULT ''")
+
+    # Créer les templates par défaut si aucun n'existe
+    existing = conn.execute("SELECT COUNT(*) FROM prompt_templates WHERE is_default = 1").fetchone()[0]
+    if existing == 0:
+        _insert_default_templates(conn)
+
+    conn.commit()
+    conn.close()
+
+
+def _insert_default_templates(conn):
+    """Insère les templates système par défaut pour chaque type × format."""
+    import json
+
+    # ---- Docs par type ----
+    DOC_SD15 = """Pour Stable Diffusion 1.5, utilise des tags Danbooru séparés par des virgules.
+Structure recommandée (par ordre d'importance) :
+1. Qualité : masterpiece, best quality, ultra-detailed, high resolution
+2. Sujet principal : 1girl, 1boy, person, character_name
+3. Apparence du sujet : long hair, blue eyes, casual clothes
+4. Action/pose : standing, sitting, looking at viewer, walking
+5. Environnement : city street, forest, bedroom, outdoor
+6. Éclairage : cinematic lighting, soft light, moody lighting
+7. Style : photorealistic, anime, sketch, oil painting
+8. Détails techniques : sharp focus, depth of field, bokeh
+
+Utilise des parenthèses pour le poids : (important:1.2) pour +20% d'importance.
+Utilise des crochets pour réduire : [moins important:0.8].
+Évite les phrases complètes, préfère les tokens courts."""
+
+    DOC_SDXL = """Pour SDXL, utilise un mélange de langage naturel et de tags Danbooru.
+Structure recommandée :
+1. Sujet principal : description naturelle du sujet
+2. Description détaillée : apparence, vêtements, expression
+3. Environnement : cadre, décor, fond
+4. Atmosphère : humeur, éclairage, météo
+5. Style : artistique, technique, référence
+6. Qualité : masterpiece, best quality, 8k
+
+SDXL comprend mieux les phrases complètes que SD1.5.
+Tu peux utiliser des phrases comme "a woman with long red hair wearing a flowing dress".
+Limite les poids aux cas vraiment importants."""
+
+    DOC_FLUX = """Pour Flux (Black Forest Labs), utilise des descriptions en langage natureL.
+Structure : Sujet + Action + Style + Contexte
+1. Sujet : le focus principal (personne, objet, personnage)
+2. Action : ce que le sujet fait ou sa pose
+3. Style : approche artistique, médium, esthétique
+4. Contexte : cadre, éclairage, heure, humeur
+
+IMPORTANT : Flux n'utilise PAS de tags Danbooru ni de poids (parenthèses).
+Écris des phrases naturelles et descriptives.
+Pas de prompt négatif - Flux ne le supporte pas.
+
+Exemple : "A young woman with red hair standing in a sunlit garden, soft focus, cinematic lighting, professional photography"""
+
+    DOC_ANIMA = """Pour les modèles Anime/Manga, utilise des tags Danbooru avec des suffixes spécifiques.
+Structure recommandée :
+1. Personnage : 1girl, 1boy, 2girls, etc.
+2. Composition : solo, multiple views, group
+3. Pose : standing, sitting, from behind, crouching
+4. Expression : smile, blush, angry, serious
+5. Apparence : long hair, twintails, red eyes, school uniform
+6. Arrière-plan : detailed background, simple background, gradient
+7. Style : anime, flat color, lineart, cel shading, pixel art
+8. Qualité : masterpiece, best quality, highres
+
+Utilise des suffixes comme (lineart), (flat color:1.2), (sketch).
+Les crochets [ ] fonctionnent aussi pour réduire l'importance."""
+
+    DOC_QWEN = """Pour Qwen (modèle vision-langage), utilise des descriptions structurées.
+Format recommandé :
+1. Description détaillée du sujet en langage naturel
+2. Contexte et environnement
+3. Composition de l'image
+4. Style visuel
+5. Éléments techniques
+
+Qwen comprend bien le langage naturel structuré.
+Privilégie la clarté et la précision des descriptions.
+Structure le prompt de façon logique, du général au spécifique."""
+
+    DOC_LISTE = """Format : liste structurée par catégories.
+Organise le prompt en catégories pertinentes qui décrivent l'image :
+
+sujet :
+- [description du sujet principal, âge, origine]
+
+vetements :
+- [description des vêtements et accessoires]
+
+style :
+- [style artistique, technique]
+
+environnement :
+- [cadre, décor, ambiance]
+
+attitude :
+- [expression, pose, humeur]
+
+éclairage :
+- [type d'éclairage, atmosphère lumineuse]
+
+couleurs :
+- [palette dominante, teintes]
+
+Chaque catégorie doit être pertinente pour l'image décrite.
+Adapte les catégories selon le contenu (ex: architecture, nature, portrait...).
+Les tags doivent être concis mais descriptifs."""
+
+    DOCS = {
+        "sd15": DOC_SD15,
+        "sdxl": DOC_SDXL,
+        "flux": DOC_FLUX,
+        "anima": DOC_ANIMA,
+        "qwen": DOC_QWEN,
+        "liste": DOC_LISTE,
+    }
+
+    # ---- Règles de format de sortie ----
+    FORMAT_RULES = {
+        "text": "Réponds UNIQUEMENT avec le prompt final, sans guillemets ni code blocks. Pas d'explications, pas de commentaires. Le prompt doit être directement utilisable dans le générateur d'images.",
+        "markdown": "Réponds en Markdown pur, SANS bloc de code (pas de ```). Le prompt doit être le contenu principal. Tu peux ajouter des titres et listes si pertinent pour enrichir la présentation.",
+        "json": "Réponds en JSON pur, SANS bloc de code (pas de ```json). Format attendu : {\"prompt\": \"...\", \"negative_prompt\": \"...\"}",
+    }
+
+    # ---- Consignes communes ----
+    CONSIGNES = """
+Règles impératives :
+- Le STYLE imposé en début de prompt doit être conservé à l'identique et enrichi si possible, jamais modifié ou supprimé
+- En cas de conflit entre éléments (ex: "long hair" vs "short hair"), privilégie l'ordre de priorité : prompt de base > éléments picker > éléments aléatoires
+- Supprime les doublons automatiquement
+- Organise les éléments par ordre d'importance
+- Ajoute des qualifiers si pertinent (masterpiece, best quality)
+- Ne JAMAIS ajouter d'explications, de commentaires ou de texte hors-prompt dans la réponse
+- La réponse doit contenir UNIQUEMENT le prompt généré"""
+
+    # ---- Exemples ----
+    EXAMPLES = {
+        "sdxl": json.dumps([
+            "A serene portrait of a young woman with flowing auburn hair and freckles, warm golden hour sunlight streaming through window, soft bokeh background, wearing a cream linen dress, ethereal atmosphere, masterpiece, photorealistic, 8k, shot on medium format film",
+            "Epic fantasy landscape of an ancient ruined castle perched on a misty mountain peak, dramatic cloudy sky, rays of light breaking through, overgrown vines and moss, highly detailed, cinematic composition, Greg Rutkowski style, intricate environment",
+            "Close-up of a steaming cup of coffee on a rustic wooden table, morning light, shallow depth of field, steam particles, warm tones, hyperrealistic, product photography, sharp focus, 8k",
+        ]),
+        "sd15": json.dumps([
+            "masterpiece, best quality, ultra-detailed, 1girl, solo, long blonde hair, blue eyes, white sundress, standing on beach, sunset, ocean waves, cinematic lighting, soft focus, photorealistic, sharp focus",
+            "masterpiece, best quality, 1boy, short brown hair, glasses, casual clothes, sitting at desk, coffee shop, warm lighting, detailed background, bokeh, (photorealistic:1.2)",
+            "masterpiece, high resolution, detailed, fantasy landscape, ruined castle, mountain peak, mist, dramatic sky, cinematic composition, (epic:1.3), intricate detail, sharp focus",
+        ]),
+        "flux": json.dumps([
+            "A young woman with flowing red hair standing in a sunlit forest clearing, soft golden rays filtering through leaves, wearing a flowing white dress, ethereal atmosphere, professional photography, shallow depth of field",
+            "A majestic medieval castle perched on a cliff edge at sunset, dramatic clouds with orange and purple hues, birds circling in the distance, cinematic wide shot, highly detailed, photorealistic",
+            "A cozy library interior with floor-to-ceiling bookshelves, warm lamplight, an old leather armchair, dust particles dancing in the light, vintage atmosphere, ultra-detailed, architectural photography",
+        ]),
+        "anima": json.dumps([
+            "masterpiece, best quality, 1girl, solo, long silver hair, purple eyes, serious expression, school uniform, standing, detailed background, sunset rooftop, cinematic lighting, anime style, highres",
+            "masterpiece, 1boy, short black hair, katana, dynamic pose, action scene, glowing effects, detailed background, night city, (lineart:1.1), vibrant colors, anime shading",
+            "best quality, 2girls, sitting, cafe, outdoor, daytime, smiling, casual clothes, detailed background, soft lighting, (cel shading:1.2), vibrant, highres",
+        ]),
+        "qwen": json.dumps([
+            "A professional portrait of a businesswoman in her 30s with shoulder-length brown hair, wearing a navy blue blazer, standing confidently in a modern office with floor-to-ceiling windows, natural lighting, professional photography style",
+            "A highly detailed fantasy landscape showing an ancient elven city built into a massive cliff face, with waterfalls cascading between crystalline towers, bioluminescent plants, twilight atmosphere, epic scale",
+            "A macro photograph of a dewdrop on a green leaf at sunrise, the water droplet acting as a lens reflecting the surrounding garden, hyperrealistic detail, golden hour lighting, 8k resolution",
+        ]),
+        "liste": json.dumps([
+            "sujet :\n- femme, 28 ans, caucasienne\n- cheveux longs auburn\n- tâches de rousseur\n\nvetements :\n- robe fluide blanche\n\nstyle :\n- photorealistic\n- masterpiece\n- 8k\n\nenvironnement :\n- forêt ensoleillée\n- rayons de lumière\n\néclairage :\n- golden hour\n- soft bokeh\n\nattitude :\n- regard doux\n- sourire léger",
+            "sujet :\n- homme, 35 ans\n- cheveux courts bruns\n- lunettes\n\nvetements :\n- costume gris\n- cravate noire\n\nstyle :\n- photorealistic\n- sharp focus\n\nenvironnement :\n- bureau moderne\n- baie vitrée\n\néclairage :\n- lumière naturelle\n- contre-jour\n\nattitude :\n- confiant\n- regard caméra",
+            "sujet :\n- château médiéval\n- ruines antiques\n\nstyle :\n- epic fantasy\n- cinematic\n- highly detailed\n\nenvironnement :\n- pic montagneux\n- brume matinale\n- nuages dramatiques\n\ncouleurs :\n- tons chauds\n- orange et pourpre\n\nambiance :\n- mystérieuse\n- grandiose",
+        ]),
+    }
+
+    # ---- Insérer les templates ----
+    for pt in ["sdxl", "sd15", "flux", "anima", "qwen", "liste"]:
+        doc = DOCS.get(pt, "")
+        examples = EXAMPLES.get(pt, "[]")
+        for fmt in ["text", "markdown", "json"]:
+            fmt_rule = FORMAT_RULES.get(fmt, FORMAT_RULES["text"])
+            system_prompt = f"""Tu es un assistant expert en génération de prompts d'images.
+Ta tâche : transformer le contenu fourni en un prompt optimisé pour {pt.upper()}.
+
+## Documentation : Comment construire un prompt {pt.upper()}
+{doc}
+
+## Format de sortie
+{fmt_rule}
+
+## Exemples
+Voici des exemples de prompts {pt.upper()} bien structurés :
+"""
+            examples_list = json.loads(examples)
+            for ex in examples_list:
+                system_prompt += f"\n- {ex}"
+            system_prompt += CONSIGNES
+
+            conn.execute("""
+                INSERT INTO prompt_templates
+                    (user_id, prompt_type, output_format, system_prompt, examples, is_default)
+                VALUES (NULL, ?, ?, ?, ?, 1)
+            """, (pt, fmt, system_prompt.strip(), examples))
 
     conn.commit()
     conn.close()
@@ -1529,6 +1744,105 @@ def single_style(style_id):
     conn.commit()
     conn.close()
     return jsonify({'status': 'ok'})
+
+
+# ── Prompt Templates ────────────────────────────────────────────────
+
+@app.route('/api/prompts/templates', methods=['GET', 'POST'])
+def prompt_templates():
+    """Lister / Créer un template personnalisé."""
+    guard = _login_required()
+    if guard: return guard
+    user_id = _get_current_user_id()
+    conn = get_db()
+
+    if request.method == 'GET':
+        pt = request.args.get('prompt_type')
+        fmt = request.args.get('output_format')
+        query = "SELECT * FROM prompt_templates WHERE (user_id IS NULL OR user_id = ?)"
+        params = [user_id]
+        if pt:
+            query += " AND prompt_type = ?"
+            params.append(pt)
+        if fmt:
+            query += " AND output_format = ?"
+            params.append(fmt)
+        query += " ORDER BY is_default DESC, user_id NULLS FIRST"
+        rows = conn.execute(query, params).fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d['examples'] = json.loads(d.get('examples', '[]')) if isinstance(d.get('examples'), str) else d.get('examples', [])
+            d['editable'] = (d['user_id'] == user_id)
+            result.append(d)
+        return jsonify(result)
+
+    data = request.get_json()
+    if not data or not data.get('prompt_type'):
+        conn.close()
+        return jsonify({'error': 'prompt_type requis'}), 400
+    pt = data['prompt_type'].strip()
+    fmt = data.get('output_format', 'text').strip()
+    system_prompt = data.get('system_prompt', '').strip()
+    examples = json.dumps(data.get('examples', []))
+    conn.execute("""
+        INSERT INTO prompt_templates (user_id, prompt_type, output_format, system_prompt, examples, is_default)
+        VALUES (?, ?, ?, ?, ?, 0)
+        ON CONFLICT(user_id, prompt_type, output_format)
+        DO UPDATE SET system_prompt = excluded.system_prompt,
+                      examples = excluded.examples,
+                      updated_at = CURRENT_TIMESTAMP
+    """, (user_id, pt, fmt, system_prompt, examples))
+    conn.commit()
+    template_id = conn.execute("SELECT id FROM prompt_templates WHERE user_id = ? AND prompt_type = ? AND output_format = ?",
+                                (user_id, pt, fmt)).fetchone()
+    conn.close()
+    return jsonify({'id': template_id['id'] if template_id else None}), 201
+
+
+@app.route('/api/prompts/templates/<int:template_id>', methods=['PUT', 'DELETE'])
+def single_template(template_id):
+    guard = _login_required()
+    if guard: return guard
+    user_id = _get_current_user_id()
+    conn = get_db()
+    row = conn.execute("SELECT * FROM prompt_templates WHERE id = ?", (template_id,)).fetchone()
+    if not row or row['user_id'] != user_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if request.method == 'PUT':
+        data = request.get_json()
+        system_prompt = data.get('system_prompt', row['system_prompt'])
+        ex = data.get('examples')
+        examples = json.dumps(ex) if ex is not None else row['examples']
+        conn.execute("""
+            UPDATE prompt_templates SET system_prompt = ?, examples = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (system_prompt, examples, template_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    conn.execute("DELETE FROM prompt_templates WHERE id = ?", (template_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/prompts/templates/defaults', methods=['GET'])
+def get_default_templates():
+    guard = _login_required()
+    if guard: return guard
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM prompt_templates WHERE is_default = 1 ORDER BY prompt_type, output_format").fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d['examples'] = json.loads(d.get('examples', '[]')) if isinstance(d.get('examples'), str) else d.get('examples', [])
+        d['editable'] = False
+        result.append(d)
+    return jsonify(result)
 
 
 # ── Enhance ─────────────────────────────────────────────────────────

@@ -109,7 +109,7 @@ Les priorités sont communiquées au LLM pour qu'il garde les choix de l'utilisa
 
 - [ ] Chaque prompt généré est automatiquement sauvegardé dans `prompt_examples`
 - [ ] Les utilisateurs peuvent voir et voter sur les prompts (👍 +1 / 👎 -1)
-- [ ] Les 5 mieux notés par type sont passés au LLM en few-shot (actuellement : prompt système hardcodé)
+- [ ] Les 5 mieux notés par type sont passés au LLM en few-shot (actuellement : prompt système hardcodé — bientôt remplacé par les templates personnalisables)
 - [ ] L'auteur est affiché → auto-modération
 - [ ] Modale de consultation des prompts (voir/voter)
 
@@ -164,6 +164,7 @@ Styles réutilisables ajoutés aux prompts avant envoi au LLM (ex: "Hyper realis
 | `prompt_examples` | id, type (sd15/sdxl/…), prompt_text, author_id, rating, created_at |
 | `prompt_votes` | id, prompt_example_id, user_id, vote (1/-1), created_at |
 | `generated_prompts` | id, user_id, preset_id, prompt_type, input_text, output_text, negative_prompt, style_id, created_at |
+| `prompt_templates` | id, user_id NULL=global, prompt_type, output_format, system_prompt TEXT, examples TEXT JSON, is_default BOOLEAN, created_at, updated_at |
 
 ### Nouveaux endpoints API
 
@@ -216,12 +217,24 @@ Note : les endpoints `GET /api/prompts/examples` et `POST /api/prompts/examples/
 ### Phase 2 — Intégration Elements Picker ✅
 - [x] Toutes les tâches sont terminées
 
-### Phase 3 — Communauté & Auto-nourrissant ⬜ (non commencée)
-- [ ] Sauvegarde automatique des prompts générés (`prompt_examples`)
-- [ ] Modale de consultation/vote des prompts
-- [ ] Endpoint `POST /api/prompts/examples/<id>/vote` (côté serveur OK, UI manquante)
-- [ ] Utilisation des 5 mieux notés comme few-shot (remplace les hardcodés)
-- [ ] Affichage de l'auteur sur les styles
+### Phase 3 — Templates personnalisables (EN COURS)
+- [ ] **Nouvelle table BDD** `prompt_templates` : id, user_id, prompt_type, output_format, system_prompt TEXT, examples JSON, is_default BOOLEAN, created_at, updated_at
+- [ ] **Migration BDD** : création de la table
+- [ ] **Templates par défaut** : un pour chaque combinaison (type × format) avec :
+  - [ ] Rôle / explication générique du LLM
+  - [ ] Doc spécifique pour construire le prompt (SDXL, SD1.5, Flux, Anima, Qwen, Liste)
+  - [ ] Explication du format de sortie attendu
+  - [ ] 3 à 10 exemples par template
+  - [ ] Consignes : préserver le style, pas de texte hors-prompt, etc.
+- [ ] **API CRUD** `/api/prompts/templates` : GET (liste), POST (créer), PUT (modifier), DELETE
+- [ ] **Résolution dans `/api/enhance`** : chercher template user → template global → template par type → template par défaut
+- [ ] **UI de personnalisation sur le site** :
+  - [ ] Onglet "Templates" dans la config IA
+  - [ ] Sélecteur type × format → charge le template
+  - [ ] Édition du prompt système (textarea)
+  - [ ] Gestion des exemples (ajouter/supprimer/réordonner)
+  - [ ] Sauvegarde en template personnel
+  - [ ] Reset vers le template par défaut
 
 ### Phase 4 — Polish & Bonus ⬜ (non commencée)
 - [ ] Checkbox Prompt négatif
