@@ -19,6 +19,14 @@
 - **Imports inutilisés** dans `auth.py` retirés.
 - **Parser ignorait les chiffres romains** avec L, C, D → sections XL+ ignorées.
 
+### ✅ Résolu session récente (modales, templates, membres)
+- **Filtre count retiré** de la liste des membres (visible uniquement dans le détail)
+- **Prompts complets** dans le détail membre (plus de troncature 120 caractères)
+- **Modales uniformisées** : toutes les modales ont le même pattern (header draggable, ✕ close, overflow hidden, position relative)
+- **Paramètres enhance persistés** : preset, type, format, style sauvegardés côté serveur par utilisateur via `/api/settings`
+- **Qwen → Qwen-Image** : documentation et exemples mis à jour pour le modèle de génération d'images (20B MMDiT)
+- **Templates refactor** : interface deux colonnes (instructions à gauche, exemples à droite), bouton export JSON, checkbox supprimée
+
 ### ⚠️ À faire au prochain déploiement
 1. S'assurer que le serveur pointe vers `/projects/FRIA_Tools` (ou copier le code modifié)
 2. Redémarrer le serveur → `_init_db()` applique les migrations
@@ -205,11 +213,17 @@ Note : les endpoints `GET /api/prompts/examples` et `POST /api/prompts/examples/
 - [x] Barre de filtres sticky (reste visible en scroll)
 - [ ] Compteur de tokens
 - [x] Footer global avec stats (mots-clés, sections, NSFW, prompts générés)
-- [x] Modales uniformes : toutes draggables, pas d'alert() natif
+- [x] Modales uniformes : toutes draggables, pas d'alert() natif, même pattern graphique
+- [x] Modales redimensionnables : poignées 8 directions (coins + bords) sur la modale settings
 
----
-
-## 📋 Plan de déploiement (Prompt Generator/Enhancer)
+## 👥 Gestion des membres
+- [x] Liste des membres avec avatar, nom, rôle
+- [x] Clic sur un membre → détail avec :
+  - [x] Grande photo (256px)
+  - [x] Stats : nombre de filtres, nombre de prompts
+  - [x] Favoris : type de prompt préféré, style préféré
+  - [x] Historique : 15 derniers prompts (texte complet)
+- [x] Endpoint API dédié : `GET /api/members/<user_id>`
 
 ### Phase 1 — Fondations ✅
 - [x] Toutes les tâches sont terminées
@@ -217,24 +231,26 @@ Note : les endpoints `GET /api/prompts/examples` et `POST /api/prompts/examples/
 ### Phase 2 — Intégration Elements Picker ✅
 - [x] Toutes les tâches sont terminées
 
-### Phase 3 — Templates personnalisables (EN COURS)
-- [ ] **Nouvelle table BDD** `prompt_templates` : id, user_id, prompt_type, output_format, system_prompt TEXT, examples JSON, is_default BOOLEAN, created_at, updated_at
-- [ ] **Migration BDD** : création de la table
-- [ ] **Templates par défaut** : un pour chaque combinaison (type × format) avec :
-  - [ ] Rôle / explication générique du LLM
-  - [ ] Doc spécifique pour construire le prompt (SDXL, SD1.5, Flux, Anima, Qwen, Liste)
-  - [ ] Explication du format de sortie attendu
-  - [ ] 3 à 10 exemples par template
-  - [ ] Consignes : préserver le style, pas de texte hors-prompt, etc.
-- [ ] **API CRUD** `/api/prompts/templates` : GET (liste), POST (créer), PUT (modifier), DELETE
-- [ ] **Résolution dans `/api/enhance`** : chercher template user → template global → template par type → template par défaut
-- [ ] **UI de personnalisation sur le site** :
-  - [ ] Onglet "Templates" dans la config IA
-  - [ ] Sélecteur type × format → charge le template
-  - [ ] Édition du prompt système (textarea)
-  - [ ] Gestion des exemples (ajouter/supprimer/réordonner)
-  - [ ] Sauvegarde en template personnel
-  - [ ] Reset vers le template par défaut
+### Phase 3 — Templates personnalisables ✅ TERMINÉE
+- [x] **Nouvelle table BDD** `prompt_templates` : id, user_id, prompt_type, output_format, system_prompt TEXT, examples JSON, is_default BOOLEAN, created_at, updated_at
+- [x] **Migration BDD** : création de la table
+- [x] **Templates par défaut** : un pour chaque combinaison (type × format) avec :
+  - [x] Rôle / explication générique du LLM
+  - [x] Doc spécifique pour construire le prompt (SDXL, SD1.5, Flux, Anima, Qwen-Image, Liste)
+  - [x] Explication du format de sortie attendu
+  - [x] 3 exemples par template
+  - [x] Consignes : préserver le style, pas de texte hors-prompt, etc.
+- [x] **API CRUD** `/api/prompts/templates` : GET (liste), POST (créer), PUT (modifier), DELETE
+- [x] **Résolution dans `/api/enhance`** : chercher template user → template global → template par type → template par défaut
+- [x] **UI de personnalisation sur le site** :
+  - [x] Onglet "Templates" dans la config IA
+  - [x] Sélecteur type × format → charge le template
+  - [x] Édition du prompt système (textarea)
+  - [x] Gestion des exemples (ajouter/supprimer liste)
+  - [x] Sauvegarde en template personnel
+  - [x] Reset vers le template par défaut
+  - [x] Export du template en JSON (📥 Exporter)
+- [x] **Paramètres enhance persistés** : preset, type, format, style sauvegardés côté serveur par utilisateur
 
 ### Phase 4 — Polish & Bonus ⬜ (non commencée)
 - [ ] Checkbox Prompt négatif
