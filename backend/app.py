@@ -332,17 +332,26 @@ Structure recommandée :
 Utilise des suffixes comme (lineart), (flat color:1.2), (sketch).
 Les crochets [ ] fonctionnent aussi pour réduire l'importance."""
 
-    DOC_QWEN = """Pour Qwen (modèle vision-langage), utilise des descriptions structurées.
-Format recommandé :
-1. Description détaillée du sujet en langage naturel
-2. Contexte et environnement
-3. Composition de l'image
-4. Style visuel
-5. Éléments techniques
+    DOC_QWEN = """Pour Qwen-Image (Alibaba, 20B MMDiT), utilise des descriptions en langage naturel structuré.
+Qwen-Image est un modèle de génération d'images performant, excellent pour :
+- Le rendu de texte multilingue (anglais, chinois, coréen, japonais...)
+- Les styles variés : photoréaliste, peinture, anime, design minimaliste
+- Les scènes complexes avec personnages, architecture, nature
+- L'édition d'image précise
 
-Qwen comprend bien le langage naturel structuré.
-Privilégie la clarté et la précision des descriptions.
-Structure le prompt de façon logique, du général au spécifique."""
+Format recommandé :
+1. Sujet principal : description naturelle (qui, quoi, apparence)
+2. Action/pose : ce que fait le sujet
+3. Environnement : cadre, décor, arrière-plan
+4. Atmosphère : éclairage, humeur, moment de la journée
+5. Style : approche artistique, médium, qualité
+
+IMPORTANT :
+- Utilise des phrases naturelles et descriptives (comme Flux)
+- Pas de tags Danbooru ni de parenthèses de poids
+- Précise le rendu texte si nécessaire (ex: "a sign that reads '...'")
+- Structure du général au spécifique
+- Limite à 2-3 phrases ou 30 éléments max"""
 
     DOC_LISTE = """Format : liste structurée par catégories.
 Organise le prompt en catégories pertinentes qui décrivent l'image :
@@ -423,9 +432,9 @@ Règles impératives :
             "best quality, 2girls, sitting, cafe, outdoor, daytime, smiling, casual clothes, detailed background, soft lighting, (cel shading:1.2), vibrant, highres",
         ]),
         "qwen": json.dumps([
-            "A professional portrait of a businesswoman in her 30s with shoulder-length brown hair, wearing a navy blue blazer, standing confidently in a modern office with floor-to-ceiling windows, natural lighting, professional photography style",
-            "A highly detailed fantasy landscape showing an ancient elven city built into a massive cliff face, with waterfalls cascading between crystalline towers, bioluminescent plants, twilight atmosphere, epic scale",
-            "A macro photograph of a dewdrop on a green leaf at sunrise, the water droplet acting as a lens reflecting the surrounding garden, hyperrealistic detail, golden hour lighting, 8k resolution",
+            "A professional portrait of a young woman with freckles and auburn hair, wearing a cream linen shirt, standing in a sunlit garden with soft golden hour lighting, shallow depth of field, photorealistic style, 8k detail",
+            "A magical forest scene with a wooden cottage nestled among giant glowing mushrooms, fireflies floating in the air, twilight atmosphere, a small sign reading 'Welcome Home' in elegant script, detailed foliage, fantasy illustration style",
+            "A cinematic wide shot of a cyberpunk city street at night, neon signs in English and Japanese, rain-slicked pavement reflecting colorful lights, a lone figure with an umbrella walking, moody blue and pink lighting, ultra-realistic",
         ]),
         "liste": json.dumps([
             "sujet :\n- femme, 28 ans, caucasienne\n- cheveux longs auburn\n- tâches de rousseur\n\nvetements :\n- robe fluide blanche\n\nstyle :\n- photorealistic\n- masterpiece\n- 8k\n\nenvironnement :\n- forêt ensoleillée\n- rayons de lumière\n\néclairage :\n- golden hour\n- soft bokeh\n\nattitude :\n- regard doux\n- sourire léger",
