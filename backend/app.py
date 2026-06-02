@@ -262,6 +262,22 @@ def _init_db():
     if "negative_prompt" not in cols_styles:
         conn.execute("ALTER TABLE styles ADD COLUMN negative_prompt TEXT DEFAULT ''")
 
+    # Migration : filter_type pour les filtres composés (union)
+    cols_filters = [r[1] for r in conn.execute("PRAGMA table_info(saved_filters)").fetchall()]
+    if "filter_type" not in cols_filters:
+        conn.execute("ALTER TABLE saved_filters ADD COLUMN filter_type TEXT DEFAULT 'simple'")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS filter_unions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            union_filter_id INTEGER NOT NULL,
+            member_filter_id INTEGER NOT NULL,
+            FOREIGN KEY (union_filter_id) REFERENCES saved_filters(id) ON DELETE CASCADE,
+            FOREIGN KEY (member_filter_id) REFERENCES saved_filters(id) ON DELETE CASCADE,
+            UNIQUE(union_filter_id, member_filter_id)
+        )
+    """)
+
     # Créer les templates par défaut si aucun n'existe
     existing = conn.execute("SELECT COUNT(*) FROM prompt_templates WHERE is_default = 1").fetchone()[0]
     if existing == 0:
@@ -1002,6 +1018,7 @@ def semantic_search():
     limit = int(request.args.get('limit', 50))
     nsfw = request.args.get('nsfw', '')
     section = request.args.get('section', '').strip()
+    subsection = request.args.get('subsection', '').strip()
     min_confidence = float(request.args.get('confidence', 0))
 
     if not q:
@@ -1027,6 +1044,9 @@ def semantic_search():
     if section:
         conditions.append("k.section_id = ?")
         params.append(section)
+    if subsection:
+        conditions.append("k.subsection_id = ?")
+        params.append(subsection)
 
     where_clause = " AND ".join(conditions) if conditions else "1=1"
 
@@ -1078,6 +1098,7 @@ def list_keywords():
     q = request.args.get('q', '').strip().lower()
     q_neg = request.args.get('q_neg', '').strip().lower()
     section = request.args.get('section', '').strip()
+    subsection = request.args.get('subsection', '').strip()
     nsfw_raw = request.args.get('nsfw', '').strip()
 
     conditions = ["1=1"]
@@ -1096,6 +1117,9 @@ def list_keywords():
     if section:
         conditions.append("k.section_id = ?")
         params.append(section)
+    if subsection:
+        conditions.append("k.subsection_id = ?")
+        params.append(subsection)
 
     if nsfw_raw in ('0', '1'):
         conditions.append("k.nsfw = ?")
@@ -1109,6 +1133,35 @@ def list_keywords():
         ORDER BY k.section_id, k.subsection_id, k.keyword
     """
     cur.execute(sql, params)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/subsections', methods=['GET'])
+def list_subsections():
+    guard = _login_required()
+    if guard:
+        return guard
+
+    section_id = request.args.get('section', '').strip()
+    conn = get_db()
+    cur = conn.cursor()
+    if section_id:
+        cur.execute("""
+            SELECT subsection_id, subsection_title, COUNT(*) as total
+            FROM keywords
+            WHERE section_id = ?
+            GROUP BY subsection_id
+            ORDER BY subsection_id
+        """, (section_id,))
+    else:
+        cur.execute("""
+            SELECT subsection_id, subsection_title, COUNT(*) as total
+            FROM keywords
+            GROUP BY subsection_id
+            ORDER BY subsection_id
+        """)
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify(rows)
@@ -1288,14 +1341,28 @@ def filters():
 
         conn = get_db()
         cur = conn.cursor()
+
+        filter_type = data.get('filter_type', 'simple')
+
         cur.execute(
-            "INSERT INTO saved_filters (user_id, name, category, nsfw, is_public, config) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, data['name'].strip(), data.get('category', '').strip(), int(data.get('nsfw', 0)), int(data.get('is_public', 0)), json.dumps(data.get('config', {})))
+            "INSERT INTO saved_filters (user_id, name, category, nsfw, is_public, config, filter_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, data['name'].strip(), data.get('category', '').strip(), int(data.get('nsfw', 0)), int(data.get('is_public', 0)), json.dumps(data.get('config', {})), filter_type)
         )
         filter_id = cur.lastrowid
+
+        # Si c'est une union, enregistrer les membres dans filter_unions
+        if filter_type == 'union':
+            member_ids = data.get('union_member_ids', [])
+            for mid in member_ids:
+                cur.execute("INSERT OR IGNORE INTO filter_unions (union_filter_id, member_filter_id) VALUES (?, ?)", (filter_id, mid))
+
         conn.commit()
         config = data.get('config', {})
         if isinstance(config, dict):
+            # Pour les unions, on ajoute les infos nécessaires à la config pour rebuild
+            if filter_type == 'union':
+                config['filter_type'] = 'union'
+                config['union_member_ids'] = data.get('union_member_ids', [])
             _rebuild_filter_cache(cur, filter_id, config)
         conn.commit()
         conn.close()
@@ -1319,7 +1386,22 @@ def filters():
         d['config'] = json.loads(d['config']) if isinstance(d['config'], str) else d['config']
         # Ajouter owner_name pour l'affichage dans l'UI
         d['owner_name'] = d.pop('display_name', None) or d.pop('username', None) or d['user_id']
+        # Ajouter filter_type (avec défaut pour les anciens filtres)
+        d['filter_type'] = d.get('filter_type', 'simple')
+        # Si c'est une union, charger les membres
+        if d['filter_type'] == 'union':
+            cur2 = conn.cursor()
+            cur2.execute("""
+                SELECT fu.member_filter_id, sf.name
+                FROM filter_unions fu
+                JOIN saved_filters sf ON sf.id = fu.member_filter_id
+                WHERE fu.union_filter_id = ?
+            """, (d['id'],))
+            d['union_members'] = [dict(m) for m in cur2.fetchall()]
+        else:
+            d['union_members'] = []
         result.append(d)
+    conn.close()
     return jsonify(result)
 
 
@@ -1348,8 +1430,21 @@ def single_filter(filter_id):
         filter_id
     )
     cur.execute("UPDATE saved_filters SET name=?, category=?, nsfw=?, is_public=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", vals)
+
+    # Gérer les membres d'une union
+    if 'union_member_ids' in data:
+        cur.execute("DELETE FROM filter_unions WHERE union_filter_id = ?", (filter_id,))
+        for mid in data['union_member_ids']:
+            cur.execute("INSERT OR IGNORE INTO filter_unions (union_filter_id, member_filter_id) VALUES (?, ?)", (filter_id, mid))
+        # Mettre à jour le filter_type si nécessaire
+        if data.get('filter_type') == 'union':
+            cur.execute("UPDATE saved_filters SET filter_type = 'union', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (filter_id,))
+
     config = data.get('config')
     if config and isinstance(config, dict):
+        if data.get('filter_type') == 'union':
+            config['filter_type'] = 'union'
+            config['union_member_ids'] = data.get('union_member_ids', [])
         cur.execute("UPDATE saved_filters SET config = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (json.dumps(config), filter_id))
         cur.execute("DELETE FROM filter_cache WHERE filter_id = ?", (filter_id,))
         _rebuild_filter_cache(cur, filter_id, config)
@@ -1370,6 +1465,14 @@ def refresh_filter_cache(filter_id):
         conn.close()
         return jsonify({'error': 'Not found'}), 404
     config = json.loads(row['config']) if isinstance(row['config'], str) else row['config']
+    # Pour les unions, enrichir la config avec les membres actuels
+    cur.execute("SELECT filter_type FROM saved_filters WHERE id = ?", (filter_id,))
+    ft = cur.fetchone()
+    filter_type = ft['filter_type'] if ft else 'simple'
+    if filter_type == 'union':
+        config['filter_type'] = 'union'
+        cur.execute("SELECT member_filter_id FROM filter_unions WHERE union_filter_id = ?", (filter_id,))
+        config['union_member_ids'] = [r['member_filter_id'] for r in cur.fetchall()]
     cur.execute("DELETE FROM filter_cache WHERE filter_id = ?", (filter_id,))
     _rebuild_filter_cache(cur, filter_id, config)
     conn.commit(); conn.close()
@@ -1377,9 +1480,25 @@ def refresh_filter_cache(filter_id):
 
 
 def _rebuild_filter_cache(cur, filter_id, config):
+    # Si c'est un filtre composé (union), merger les caches des membres
+    filter_type = config.get('filter_type', 'simple')
+    if filter_type == 'union':
+        member_ids = config.get('union_member_ids', [])
+        if member_ids:
+            # Récupérer les keyword_ids de chaque membre et les unir (déduplication automatique par PRIMARY KEY)
+            ph = ','.join('?' for _ in member_ids)
+            cur.execute(f"""
+                INSERT OR IGNORE INTO filter_cache (filter_id, keyword_id)
+                SELECT ?, keyword_id FROM filter_cache
+                WHERE filter_id IN ({ph})
+            """, [filter_id] + member_ids)
+        return
+
+    # Filtre simple : construction de la requête
     conditions = ["1=1"]
     params = []
     section = config.get('section', '').strip()
+    subsection = config.get('subsection', '').strip()
     search_text = config.get('search_text', '').strip()
     search_neg = config.get('search_neg', '').strip()
     semantic_text = config.get('semantic_text', '').strip()
@@ -1390,6 +1509,9 @@ def _rebuild_filter_cache(cur, filter_id, config):
     if section:
         conditions.append("k.section_id = ?")
         params.append(section)
+    if subsection:
+        conditions.append("k.subsection_id = ?")
+        params.append(subsection)
     if nsfw == '0':
         conditions.append("k.nsfw = 0")
     elif nsfw == '1':
@@ -1411,12 +1533,15 @@ def _rebuild_filter_cache(cur, filter_id, config):
         try:
             from embeddings import generate_embedding, cosine_similarity
             qe = generate_embedding(semantic_text)
-            # Pré-filtrer section/nsfw dans la requête SQL (hidden_ids appliqué APRES la limite)
+            # Pré-filtrer section/nsfw/subsection dans la requête SQL (hidden_ids appliqué APRES la limite)
             sem_conds = ["1=1"]
             sem_params = []
             if section:
                 sem_conds.append("k.section_id = ?")
                 sem_params.append(section)
+            if subsection:
+                sem_conds.append("k.subsection_id = ?")
+                sem_params.append(subsection)
             if nsfw == '0':
                 sem_conds.append("k.nsfw = 0")
             elif nsfw == '1':
@@ -1480,15 +1605,25 @@ def preview_filter(filter_id):
     keywords = [r['keyword'] for r in cur.fetchall()]
     cur.execute("SELECT COUNT(*) FROM filter_cache WHERE filter_id = ?", (filter_id,))
     total = cur.fetchone()[0]
-    cur.execute("SELECT name, config FROM saved_filters WHERE id = ?", (filter_id,))
+    cur.execute("SELECT name, config, filter_type FROM saved_filters WHERE id = ?", (filter_id,))
     info = cur.fetchone()
-    conn.close()
-    return jsonify({
+    result = {
         'name': info['name'] if info else '',
         'total': total,
         'keywords': keywords,
+        'filter_type': info['filter_type'] if info else 'simple',
         'config': json.loads(info['config']) if info and isinstance(info['config'], str) else (info['config'] if info else {})
-    })
+    }
+    if info and info['filter_type'] == 'union':
+        cur.execute("""
+            SELECT fu.member_filter_id, sf.name
+            FROM filter_unions fu
+            JOIN saved_filters sf ON sf.id = fu.member_filter_id
+            WHERE fu.union_filter_id = ?
+        """, (filter_id,))
+        result['union_members'] = [{'id': r['member_filter_id'], 'name': r['name']} for r in cur.fetchall()]
+    conn.close()
+    return jsonify(result)
 
 
 # ═══════════════════════════════════════════════════════════════════

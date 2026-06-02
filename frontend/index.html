@@ -179,6 +179,9 @@
                     <select id="section-select" class="px-2 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
                       <option value="">Toutes sections</option>
                     </select>
+                    <select id="subsection-select" class="px-2 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+                      <option value="">Toutes sous-sections</option>
+                    </select>
                     <label class="inline-flex items-center gap-1.5 px-2 py-1 text-sm select-none cursor-pointer rounded border border-slate-200 dark:border-slate-600">
                       <input type="radio" name="nsfw-filter" value="" checked class="accent-indigo-600">
                       <span class="text-slate-600 dark:text-slate-400">Tout</span>
@@ -759,6 +762,7 @@
     const searchNegInput = $('search-neg-input');
     const semanticInput = $('search-semantic-input');
     const sectionSelect = $('section-select');
+    const subsectionSelect = $('subsection-select');
     const emptyState = $('empty-state');
     const resultsArea = $('results-area');
     const filtersBar = $('filters-bar');
@@ -821,7 +825,12 @@
       searchInput?.addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(applyFilters, 300); });
       semanticInput?.addEventListener('input', () => { clearTimeout(semanticTimer); semanticTimer = setTimeout(applyFilters, 400); });
       searchNegInput?.addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(applyFilters, 300); });
-      sectionSelect?.addEventListener('change', function(){ semanticCache = null; applyFilters(); });
+      sectionSelect?.addEventListener('change', function(){
+        semanticCache = null;
+        loadSubsections(this.value);
+        applyFilters();
+      });
+      subsectionSelect?.addEventListener('change', function(){ semanticCache = null; applyFilters(); });
       document.querySelectorAll('input[name="nsfw-filter"]').forEach(el => el.addEventListener('change', function(){ semanticCache = null; applyFilters(); }));
     searchNegInput?.addEventListener('change', function(){ semanticCache = null; });
       var confSlider = document.getElementById('filter-confidence');
@@ -862,6 +871,8 @@
       document.getElementById('search-neg-input').value = '';
       document.getElementById('search-semantic-input').value = '';
       document.getElementById('section-select').value = '';
+      document.getElementById('subsection-select').value = '';
+      document.getElementById('subsection-select').innerHTML = '<option value="">Toutes sous-sections</option>';
       document.querySelectorAll('input[name="nsfw-filter"]').forEach(function(r){ r.checked = r.value === ''; });
       document.getElementById('filter-confidence').value = 0;
       document.getElementById('filter-confidence-num').value = 0;
@@ -1017,6 +1028,21 @@
       } catch { sectionsList = []; }
     }
 
+    async function loadSubsections(sectionId) {
+      try {
+        const url = sectionId ? (API + '/subsections?section=' + encodeURIComponent(sectionId)) : (API + '/subsections');
+        const res = await fetch(url);
+        const list = await res.json();
+        subsectionSelect.innerHTML = '<option value="">Toutes sous-sections</option>';
+        for (const sub of list) {
+          const opt = document.createElement('option');
+          opt.value = sub.subsection_id;
+          opt.textContent = sub.subsection_id + ' — ' + sub.subsection_title + ' (' + sub.total + ')';
+          subsectionSelect.appendChild(opt);
+        }
+      } catch {}
+    }
+
     async function loadKeywords() {
       const kwLoading = document.getElementById('keywords-loading');
       if (kwLoading) kwLoading.classList.remove('hidden');
@@ -1026,13 +1052,14 @@
       const semQ = semanticInput.value.trim();
       const nsfw = getNsfwFilter();
       const section = sectionSelect.value;
+      const subsection = subsectionSelect.value;
       const confidence = parseFloat(document.getElementById('filter-confidence').value) / 100 || 0;
 
       let semResults = null;
       if (semQ) {
-        if (!semanticCache || semanticCache.text !== semQ || semanticCache.confidence !== confidence) {
-          semResults = await fetchSemanticSearch(semQ, nsfw, section, confidence);
-          if (semResults) semanticCache = { text: semQ, confidence: confidence, results: semResults };
+        if (!semanticCache || semanticCache.text !== semQ || semanticCache.confidence !== confidence || semanticCache.section !== section || semanticCache.subsection !== subsection) {
+          semResults = await fetchSemanticSearch(semQ, nsfw, section, subsection, confidence);
+          if (semResults) semanticCache = { text: semQ, confidence: confidence, section: section, subsection: subsection, results: semResults };
         } else {
           semResults = semanticCache.results;
         }
@@ -1057,7 +1084,7 @@
 
       // Ne pas fetcher l'API texte si la sémantique est active (filtrage fait ci-dessus)
       const [textResults] = await Promise.all([
-        (!semQ && (textQ || negQ)) ? fetchTextSearch(textQ, negQ, nsfw, section) : Promise.resolve(null),
+        (!semQ && (textQ || negQ)) ? fetchTextSearch(textQ, negQ, nsfw, section, subsection) : Promise.resolve(null),
       ]);
 
       if (semResults !== null) {
@@ -1069,6 +1096,7 @@
         try {
           const params = new URLSearchParams();
           if (section) params.append('section', section);
+          if (subsection) params.append('subsection', subsection);
           if (nsfw !== '') params.append('nsfw', nsfw);
           const res = await fetch(API + '/keywords?' + params.toString());
           allKeywords = await res.json();
@@ -1080,25 +1108,27 @@
       }
     }
 
-    async function fetchTextSearch(q, q_neg, nsfw, section) {
+    async function fetchTextSearch(q, q_neg, nsfw, section, subsection) {
       try {
         const params = new URLSearchParams();
         params.append('q', q);
         if (q_neg) params.append('q_neg', q_neg);
         if (section) params.append('section', section);
+        if (subsection) params.append('subsection', subsection);
         if (nsfw !== '') params.append('nsfw', nsfw);
         const res = await fetch(API + '/keywords?' + params.toString());
         return await res.json();
       } catch { return []; }
     }
 
-    async function fetchSemanticSearch(q, nsfw, section, confidence) {
+    async function fetchSemanticSearch(q, nsfw, section, subsection, confidence) {
       semanticLoading.classList.remove('hidden');
       try {
         const params = new URLSearchParams();
         params.append('q', q);
         params.append('limit', '500');
         if (section) params.append('section', section);
+        if (subsection) params.append('subsection', subsection);
         if (nsfw !== '') params.append('nsfw', nsfw);
         if (confidence > 0) params.append('confidence', confidence);
         const res = await fetch(API + '/search/semantic?' + params.toString());
@@ -1331,8 +1361,9 @@
         list.innerHTML = filtered.map(function(f) {
           var badge = f.nsfw ? '<span class="text-xs text-rose-400">NSFW</span>' : '<span class="text-xs text-emerald-400">SFW</span>';
           var pub = f.is_public ? '<span class="text-xs text-slate-400">public</span>' : '';
+          var typeTag = f.filter_type === 'union' ? '<span class="text-xs text-amber-500 font-medium">[Union]</span> ' : '';
           return '<div class="flex items-center gap-2 p-1.5 rounded hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer" onclick="pickFilter(' + f.id + ',\'' + escapeHtml(f.name).replace(/'/g,"\\'") + '\')">'
-            + '<span class="flex-1 text-slate-700 dark:text-slate-300">' + escapeHtml(f.name) + '</span>'
+            + typeTag + '<span class="flex-1 text-slate-700 dark:text-slate-300">' + escapeHtml(f.name) + '</span>'
             + badge + ' ' + pub
             + '</div>';
         }).join('');
@@ -1421,6 +1452,7 @@
     function getFilterConfig() {
       return {
         section: document.getElementById('section-select').value,
+        subsection: document.getElementById('subsection-select').value,
         search_text: document.getElementById('search-input').value,
         search_neg: document.getElementById('search-neg-input').value,
         semantic_text: document.getElementById('search-semantic-input').value,
@@ -1433,6 +1465,7 @@
     function applyFilterConfig(config) {
       var c = config || {};
       document.getElementById('section-select').value = c.section || '';
+      document.getElementById('subsection-select').value = c.subsection || '';
       document.getElementById('search-input').value = c.search_text || '';
       document.getElementById('search-neg-input').value = c.search_neg || '';
       document.getElementById('search-semantic-input').value = c.semantic_text || '';
@@ -1444,6 +1477,10 @@
       hiddenKWs = {};
       if (c.hidden_kw_ids && Array.isArray(c.hidden_kw_ids)) {
         c.hidden_kw_ids.forEach(function(id){ hiddenKWs[id] = true; });
+      }
+      // Charger les sous-sections si une section est sélectionnée
+      if (c.section) {
+        loadSubsections(c.section);
       }
       applyFilters(true);
     }
@@ -1513,13 +1550,25 @@
       fetch(API + '/filters/' + filterId + '/preview').then(function(res){
         return res.json();
       }).then(function(data){
-        applyFilterConfig(data.config || {});
-        loadedFilterId = filterId;
-        var nameEl = document.getElementById('filter-loaded-name');
-        nameEl.textContent = data.name || 'Filtre';
-        nameEl.classList.remove('hidden');
-        document.getElementById('btn-filter-save').classList.remove('hidden');
-        document.getElementById('btn-filter-discard').classList.remove('hidden');
+        if (data.filter_type === 'union') {
+          // Union filter: show union info in the name, don't apply config
+          resetFilters();
+          loadedFilterId = filterId;
+          var nameEl = document.getElementById('filter-loaded-name');
+          var memberNames = (data.union_members || []).map(function(m){ return m.name; }).join(', ');
+          nameEl.textContent = '[Union] ' + (data.name || '') + ' (' + (data.total || 0) + ' kw) → ' + memberNames;
+          nameEl.classList.remove('hidden');
+          document.getElementById('btn-filter-save').classList.add('hidden');
+          document.getElementById('btn-filter-discard').classList.remove('hidden');
+        } else {
+          applyFilterConfig(data.config || {});
+          loadedFilterId = filterId;
+          var nameEl = document.getElementById('filter-loaded-name');
+          nameEl.textContent = data.name || 'Filtre';
+          nameEl.classList.remove('hidden');
+          document.getElementById('btn-filter-save').classList.remove('hidden');
+          document.getElementById('btn-filter-discard').classList.remove('hidden');
+        }
         closeFilterPick();
       }).catch(function(){});
     }
@@ -2040,12 +2089,56 @@
       document.getElementById('modal-manage-filters').classList.remove('hidden');
       document.getElementById('modal-manage-filters').classList.add('flex');
       makeModalDraggable('mf-modal-header', 'mf-modal');
+      mfSelected = {};
+      var ub = document.getElementById('mf-union-btn');
+      if (ub) ub.style.display = 'none';
       loadManageFilters();
     }
 
     function closeManageFilters() {
       document.getElementById('modal-manage-filters').classList.add('hidden');
       document.getElementById('modal-manage-filters').classList.remove('flex');
+    }
+
+    var mfSelected = {};
+
+    function mfToggleSelect(id) {
+      if (mfSelected[id]) delete mfSelected[id];
+      else mfSelected[id] = true;
+      document.getElementById('mf-union-btn').style.display = Object.keys(mfSelected).length >= 2 ? 'inline-flex' : 'none';
+    }
+
+    async function mfCreateUnion() {
+      var ids = Object.keys(mfSelected).map(Number);
+      if (ids.length < 2) { showModal('Union', 'Selectionne au moins 2 filtres', 'error'); return; }
+      showPrompt('Union', 'Nom du filtre compose (union) :', 'Union: ...', async function(name) {
+        if (!name) return;
+        try {
+          var res = await fetch(API + '/filters', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              name: name,
+              filter_type: 'union',
+              union_member_ids: ids,
+              nsfw: 0,
+              is_public: 0,
+              category: '',
+              config: {}
+            })
+          });
+          if (res.ok) {
+            showModal('Union', 'Filtre compose cree !', 'success');
+            mfSelected = {};
+            loadManageFilters();
+          } else {
+            var err = await safeJson(res);
+            showModal('Erreur', err.error || 'Erreur', 'error');
+          }
+        } catch (err) {
+          showModal('Erreur', err.message, 'error');
+        }
+      });
     }
 
     async function loadManageFilters() {
@@ -2056,13 +2149,24 @@
         var el = document.getElementById('mf-list');
         if (!filters.length) { el.innerHTML = '<p class="text-xs text-slate-400">Aucun filtre</p>'; return; }
         var html = '';
+        html += '<div class="flex items-center gap-2 px-1 pb-2 border-b border-slate-200 dark:border-slate-700">';
+        html += '<button id="mf-union-btn" onclick="mfCreateUnion()" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50">&#x1f9ea; Creer une union</button>';
+        html += '<span class="text-xs text-slate-400">(cochez 2+ filtres)</span></div>';
         filters.forEach(function(f) {
           var canEdit = f.user_id === (currentUser ? currentUser.id : '');
+          var checked = mfSelected[f.id] ? 'checked' : '';
+          var typeBadge = f.filter_type === 'union' ? '<span class="text-xs text-amber-500 font-medium">[Union]</span> ' : '<span class="text-xs text-slate-400">[Simple]</span> ';
+          var membersHtml = '';
+          if (f.filter_type === 'union' && f.union_members && f.union_members.length > 0) {
+            membersHtml = '<br><span class="text-xs text-amber-500/70">→ ' + f.union_members.map(function(m){ return escapeHtml(m.name); }).join(', ') + '</span>';
+          }
           html += '<div class="flex items-center justify-between py-1.5 px-2 rounded text-xs ' + (canEdit ? 'bg-slate-50 dark:bg-slate-800/50' : 'bg-slate-50/50 dark:bg-slate-800/30') + '">';
-          html += '<div><span class="font-medium text-slate-700 dark:text-slate-200">' + escapeHtml(f.name) + '</span>';
+          html += '<div class="flex items-center gap-2 flex-1 min-w-0">';
+          html += '<input type="checkbox" ' + checked + ' onchange="mfToggleSelect(' + f.id + ')" class="accent-indigo-500 flex-shrink-0">';
+          html += '<div class="min-w-0"><span class="font-medium text-slate-700 dark:text-slate-200">' + escapeHtml(f.name) + '</span> ' + typeBadge;
           html += ' <span class="text-slate-400">' + (f.nsfw ? 'NSFW' : 'SFW') + (f.is_public ? ' public' : '') + '</span>';
-          html += '<br><span class="text-slate-400">' + (f.config ? JSON.stringify(f.config).substring(0,60) : '') + '</span></div>';
-          html += '<div class="flex gap-1">';
+          html += membersHtml + '</div></div>';
+          html += '<div class="flex gap-1 flex-shrink-0">';
           if (canEdit) {
             html += '<button onclick="renameFilter(' + f.id + ')" class="text-xs text-indigo-400 hover:text-indigo-600">Edit</button>';
             html += '<button onclick="refreshFilterCache(' + f.id + ')" class="text-xs text-amber-400 hover:text-amber-600" title="Reconstruire le cache">&#x21bb;</button>';
