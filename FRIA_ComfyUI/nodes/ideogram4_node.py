@@ -25,8 +25,8 @@ class FRIAIdeogram4Node:
         return {
             "required": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
-                "width": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
-                "height": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
+                "width": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64, "forceInput": True}),
+                "height": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64, "forceInput": True}),
                 "description": ("STRING", {"multiline": True, "default": ""}),
                 "element_1": ("STRING", {"multiline": True, "default": ""}),
                 "element_2": ("STRING", {"multiline": True, "default": ""}),

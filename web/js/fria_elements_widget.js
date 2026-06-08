@@ -160,8 +160,10 @@ function hideWidget(node, name) {
                 };
 
                 const addFilterBtn = mkBtn("+ Add saved filter");
+                const addTextBtn = mkBtn("+ Add custom text");
 
                 tb.appendChild(addFilterBtn);
+                tb.appendChild(addTextBtn);
 
                 // ---- Liste des éléments (flex: grow, absorbe l'espace) ----
                 const listEl = document.createElement("div");
@@ -180,7 +182,7 @@ function hideWidget(node, name) {
                 function renderList() {
                     const items = node._friaElements || [];
                     if (items.length === 0) {
-                        listEl.innerHTML = "Aucun élément. Ajoutez des filtres.";
+                        listEl.innerHTML = "Aucun élément. Ajoutez des filtres ou du texte custom.";
                         listEl.style.color = "#666";
                         return;
                     }
@@ -193,7 +195,6 @@ function hideWidget(node, name) {
                             padding: "3px 4px", borderRadius: "3px", marginBottom: "2px",
                             background: item.type === "filter" ? "#2d3748" : "#1a365d",
                             border: "1px solid #555",
-                            cursor: "grab",
                         });
 
                         // Poignée de drag (⠿) + boutons haut/bas
@@ -240,30 +241,44 @@ function hideWidget(node, name) {
                         row.appendChild(dnBtn);
                         const iconSpan = document.createElement("span");
                         iconSpan.style.cssText = "flex-shrink:0;";
-                        iconSpan.textContent = item.type === "filter" ? "🔽" : "🧠";
+                        iconSpan.textContent = item.type === "filter" ? "🔽" : "📝";
                         row.appendChild(iconSpan);
 
-                        // Nom (ellipsis si trop long)
-                        const label = document.createElement("span");
-                        label.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
-                        if (item.type === "filter") {
-                            label.textContent = item.name || `Filtre #${item.id}`;
+                        // Contenu : input texte pour "text", label pour "filter"
+                        if (item.type === "text") {
+                            const textInput = document.createElement("input");
+                            textInput.type = "text";
+                            textInput.value = item.text || "";
+                            textInput.placeholder = "Texte custom...";
+                            Object.assign(textInput.style, {
+                                flex: "1", minWidth: "0",
+                                padding: "2px 6px", borderRadius: "3px",
+                                border: "1px solid #555", background: "#1a1a1e",
+                                color: "#fff", fontSize: "11px",
+                            });
+                            textInput.oninput = () => {
+                                item.text = textInput.value;
+                                syncElementsWidget();
+                            };
+                            row.appendChild(textInput);
                         } else {
-                            label.textContent = item.text || "?";
-                        }
-                        row.appendChild(label);
+                            // Filtre : nom + meta
+                            const label = document.createElement("span");
+                            label.style.cssText = "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+                            label.textContent = item.name || `Filtre #${item.id}`;
+                            row.appendChild(label);
 
-                        // Badge auteur + visibilité
-                        if (item.type === "filter" && item.author) {
-                            const meta = document.createElement("span");
-                            meta.style.cssText = "font-size:10px;color:#999;white-space:nowrap;flex-shrink:0;";
-                            meta.textContent = `${item.author} ${item.is_public ? "🌐" : "🔒"}`;
-                            row.appendChild(meta);
-                        } else if (item.type === "filter") {
-                            const vis = document.createElement("span");
-                            vis.style.cssText = "flex-shrink:0;";
-                            vis.textContent = item.is_public ? "🌐" : "🔒";
-                            row.appendChild(vis);
+                            if (item.author) {
+                                const meta = document.createElement("span");
+                                meta.style.cssText = "font-size:10px;color:#999;white-space:nowrap;flex-shrink:0;";
+                                meta.textContent = `${item.author} ${item.is_public ? "🌐" : "🔒"}`;
+                                row.appendChild(meta);
+                            } else if (item.is_public !== undefined) {
+                                const vis = document.createElement("span");
+                                vis.style.cssText = "flex-shrink:0;";
+                                vis.textContent = item.is_public ? "🌐" : "🔒";
+                                row.appendChild(vis);
+                            }
                         }
 
                         // Bouton supprimer
@@ -305,6 +320,19 @@ function hideWidget(node, name) {
                     } catch (err) {
                         showToast("Erreur", "Impossible de charger les filtres : " + err.message);
                     }
+                };
+
+                // ---- Add custom text ----
+                addTextBtn.onclick = () => {
+                    node._friaElements.push({ type: "text", text: "" });
+                    renderList();
+                    syncElementsWidget();
+                    // Focus le dernier input texte
+                    setTimeout(() => {
+                        const inputs = listEl.querySelectorAll("input[type='text']");
+                        const last = inputs[inputs.length - 1];
+                        if (last) last.focus();
+                    }, 0);
                 };
 
                 // ---- Random + SFW/NSFW row (hauteur fixe) ----

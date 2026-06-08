@@ -1,12 +1,17 @@
 /**
  * FR.IA Ideogram 4 Caption Builder — Custom DOM widget for ComfyUI node.
  *
- * Flux :
- *   - "Run" (workflow) : Python lit tous les widgets, appelle l'API
- *   - "Generate" : JS appelle l'API pour un aperçu instantané
+ * Layout (de haut en bas) :
+ *   - Widgets ComfyUI natifs : seed, width, height, description, element_1..4
+ *     (les sockets sont visibles, on peut y connecter des fils)
+ *   - DOM widget custom :
+ *     - Preset IA + Style (grille 2 col)
+ *     - Bouton Generate
+ *     - Resultat (le JSON caption)
+ *     - Preview canvas (bbox du JSON)
  *
- * Inputs : seed, width, height, description, element_1..4, preset_id, style_id
- * Output : prompt (STRING) = JSON caption Ideogram 4
+ * Les widgets preset_id, style_id, _api_config sont masques et synces
+ * depuis le DOM custom.
  */
 (function waitForApp() {
     const app = window.app || window.comfyAPI?.app?.app;
@@ -22,7 +27,9 @@
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Cacher les widgets standards ----
+                // ---- Cacher UNIQUEMENT les widgets internes ----
+                // (seed, width, height, description, element_1..4 sont des
+                //  widgets ComfyUI natifs et restent visibles)
                 const hideWidget = (n, name) => {
                     const w = n.widgets?.find(x => x.name === name);
                     if (w) {
@@ -32,9 +39,7 @@
                         if (w.parentEl) w.parentEl.style.display = "none";
                     }
                 };
-                ["seed", "width", "height", "description",
-                 "element_1", "element_2", "element_3", "element_4",
-                 "preset_id", "style_id", "_api_config"].forEach(
+                ["preset_id", "style_id", "_api_config"].forEach(
                     n => hideWidget(node, n)
                 );
 
@@ -63,25 +68,9 @@
                     return resp.json();
                 };
 
-                // ---- Sync widgets caches (le Python les lira) ----
-                function syncIdeogram4Widget() {
-                    const set = (name, val) => {
-                        const w = node.widgets?.find(x => x.name === name);
-                        if (w) w.value = val;
-                    };
-                    set("seed", parseInt(seedInput.value) || 0);
-                    set("width", parseInt(widthInput.value) || 1024);
-                    set("height", parseInt(heightInput.value) || 1024);
-                    set("description", descTextarea.value);
-                    set("element_1", elems[0].value);
-                    set("element_2", elems[1].value);
-                    set("element_3", elems[2].value);
-                    set("element_4", elems[3].value);
-                    set("preset_id", parseInt(presetSelect.value) || 0);
-                    set("style_id", parseInt(styleSelect.value) || 0);
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (a) a.value = JSON.stringify({ api_url: getApiUrl(), api_key: getApiKey() });
-                }
+                // Les widgets visibles (seed, width, height, description, element_1..4)
+                // sont geres nativement par ComfyUI : sockets visibles, valeurs
+                // sauvegardees dans le workflow automatiquement.
 
                 // ---- Cache de rafraîchissement intelligent ----
                 const _cache = (window.__FRIA_cache = window.__FRIA_cache || { presets: 0, styles: 0 });
@@ -112,10 +101,14 @@
                     });
                 }
 
-                // ---- Container ----
+                // ========================================
+                // DOM WIDGET (sous les widgets natifs)
+                // ========================================
+
                 const container = document.createElement("div");
                 Object.assign(container.style, {
-                    width: "100%", height: "100%", padding: "8px", boxSizing: "border-box",
+                    width: "100%",
+                    padding: "8px", boxSizing: "border-box",
                     background: "#2a2a2e", borderRadius: "8px",
                     display: "flex", flexDirection: "column", gap: "6px",
                     fontSize: "12px", color: "#ccc", overflow: "hidden",
@@ -134,104 +127,30 @@
                     color: "#ccc", fontSize: "11px", cursor: "pointer",
                 };
 
-                // ---- 1. Dimensions + Seed (ligne compacte) ----
-                const dimRow = document.createElement("div");
-                Object.assign(dimRow.style, {
-                    display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px",
-                });
-
-                function mkNumberInput(label, defVal, min, max) {
-                    const wrap = document.createElement("div");
-                    const inp = document.createElement("input");
-                    inp.type = "number"; inp.value = defVal;
-                    if (min != null) inp.min = min;
-                    if (max != null) inp.max = max;
-                    Object.assign(inp.style, {
-                        width: "100%", padding: "3px 6px", borderRadius: "4px",
-                        border: "1px solid #555", background: "#1a1a1e",
-                        color: "#fff", fontSize: "11px", boxSizing: "border-box",
-                    });
-                    inp.onchange = inp.oninput = syncIdeogram4Widget;
-                    wrap.appendChild(mkLabel(label));
-                    wrap.appendChild(inp);
-                    return { wrap, inp };
-                }
-
-                const { inp: seedInput } = mkNumberInput("Seed", 0, 0);
-                const { inp: widthInput } = mkNumberInput("Width", 1024, 64, 4096);
-                const { inp: heightInput } = mkNumberInput("Height", 1024, 64, 4096);
-                dimRow.appendChild(seedInput.parentElement);
-                dimRow.appendChild(widthInput.parentElement);
-                dimRow.appendChild(heightInput.parentElement);
-                container.appendChild(dimRow);
-
-                // ---- 2. Preset + Style (ligne compacte) ----
+                // ---- 1. Preset + Style (grille 2 col) ----
                 const psRow = document.createElement("div");
                 Object.assign(psRow.style, {
                     display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px",
                 });
 
-                // Preset
                 const presetDiv = document.createElement("div");
                 const presetSelect = document.createElement("select");
                 Object.assign(presetSelect.style, selectStyle);
-                presetSelect.onchange = syncIdeogram4Widget;
-                presetSelect.dataset.filled = "false";
                 presetSelect.addEventListener("mousedown", () => refreshIfStale(presetSelect, "presets", "presets"));
                 presetDiv.appendChild(mkLabel("Preset IA"));
                 presetDiv.appendChild(presetSelect);
                 psRow.appendChild(presetDiv);
 
-                // Style
                 const styleDiv = document.createElement("div");
                 const styleSelect = document.createElement("select");
                 Object.assign(styleSelect.style, selectStyle);
-                styleSelect.onchange = syncIdeogram4Widget;
-                styleSelect.dataset.filled = "false";
                 styleSelect.addEventListener("mousedown", () => refreshIfStale(styleSelect, "styles", "styles"));
                 styleDiv.appendChild(mkLabel("Style"));
                 styleDiv.appendChild(styleSelect);
                 psRow.appendChild(styleDiv);
                 container.appendChild(psRow);
 
-                // ---- 3. Description generale (textarea) ----
-                const descTextarea = document.createElement("textarea");
-                Object.assign(descTextarea.style, {
-                    width: "100%", height: "60px", minHeight: "60px", maxHeight: "60px",
-                    borderRadius: "4px", border: "1px solid #555",
-                    padding: "4px", background: "#1a1a1e", color: "#fff",
-                    fontSize: "11px", resize: "none", boxSizing: "border-box",
-                });
-                descTextarea.placeholder = "Description generale (style, decor, lumiere, ambiance...)";
-                descTextarea.onchange = descTextarea.oninput = syncIdeogram4Widget;
-                container.appendChild(mkLabel("Description generale"));
-                container.appendChild(descTextarea);
-
-                // ---- 4. 4 Elements ----
-                const elemLabels = ["Element 1 (sujet principal)", "Element 2", "Element 3", "Element 4"];
-                const elemPlaceholders = [
-                    "ex: une jeune barista aux cheveux boucles",
-                    "ex: une tasse en porcelaine avec latte art",
-                    "ex: une machine a espresso en laiton",
-                    "ex: un comptoir en bois",
-                ];
-                const elems = [];
-                for (let i = 0; i < 4; i++) {
-                    container.appendChild(mkLabel(elemLabels[i]));
-                    const ta = document.createElement("textarea");
-                    Object.assign(ta.style, {
-                        width: "100%", height: "40px", minHeight: "40px", maxHeight: "40px",
-                        borderRadius: "4px", border: "1px solid #555",
-                        padding: "4px", background: "#1a1a1e", color: "#fff",
-                        fontSize: "11px", resize: "none", boxSizing: "border-box",
-                    });
-                    ta.placeholder = elemPlaceholders[i];
-                    ta.onchange = ta.oninput = syncIdeogram4Widget;
-                    container.appendChild(ta);
-                    elems.push(ta);
-                }
-
-                // ---- 5. Bouton Generate ----
+                // ---- 2. Bouton Generate ----
                 const generateBtn = document.createElement("button");
                 generateBtn.textContent = "🔄  Generate Ideogram 4 caption";
                 Object.assign(generateBtn.style, {
@@ -243,20 +162,27 @@
                 generateBtn.onmouseenter = () => generateBtn.style.background = "#5558e8";
                 generateBtn.onmouseleave = () => generateBtn.style.background = "#6366f1";
                 generateBtn.onclick = async () => {
-                    syncIdeogram4Widget();
+                    // Lire les widgets natifs (description, elements, seed, width, height)
+                    const get = (name) => node.widgets?.find(w => w.name === name);
+                    const description = (get("description")?.value || "").trim();
+                    const elTexts = ["element_1", "element_2", "element_3", "element_4"]
+                        .map(n => (get(n)?.value || "").trim())
+                        .filter(Boolean);
+                    const seedW = get("seed")?.value;
+                    const widthW = get("width")?.value;
+                    const heightW = get("height")?.value;
+
                     const payload = {
-                        text: descTextarea.value,
-                        seed: parseInt(seedInput.value) || null,
+                        text: description,
+                        seed: seedW > 0 ? seedW : null,
                         prompt_type: "ideogram4",
-                        width: parseInt(widthInput.value) || 1024,
-                        height: parseInt(heightInput.value) || 1024,
-                        ep_elements: elems
-                            .filter(e => e.value.trim())
-                            .map(e => ({ type: "text", text: e.value.trim() })),
+                        width: widthW || 1024,
+                        height: heightW || 1024,
+                        ep_elements: elTexts.map(t => ({ type: "text", text: t })),
                         preset_id: parseInt(presetSelect.value) || null,
                         style_id: parseInt(styleSelect.value) || null,
                     };
-                    if (!descTextarea.value.trim() && payload.ep_elements.length === 0) {
+                    if (!description && elTexts.length === 0) {
                         resultTextarea.value = "Decris au moins la scene generale ou un element.";
                         return;
                     }
@@ -265,35 +191,82 @@
                         const data = await apiPost("enhance", payload);
                         const prompt = data.output || "";
                         if (node._resultArea) node._resultArea.value = prompt;
-                        syncIdeogram4Widget();
+                        // Sauver les widgets caches
+                        saveHiddenWidgets();
+                        // Redessiner la preview
+                        schedulePreview();
                     } catch (err) {
                         if (node._resultArea) node._resultArea.value = "Erreur: " + err.message;
                     }
                 };
                 container.appendChild(generateBtn);
 
-                // ---- 6. Resultat (remplit l'espace) ----
+                // ---- 3. Resultat (le JSON caption) ----
                 const resultTextarea = document.createElement("textarea");
                 Object.assign(resultTextarea.style, {
-                    width: "100%", flex: "1", minHeight: "40px",
+                    width: "100%",
+                    height: "120px", minHeight: "120px", maxHeight: "120px",
                     borderRadius: "4px", border: "1px solid #555",
                     padding: "4px", background: "#1a1a1e", color: "#fff",
                     fontSize: "11px", resize: "none", boxSizing: "border-box",
                 });
                 resultTextarea.placeholder = "JSON caption Ideogram 4...";
                 resultTextarea.readOnly = true;
+                resultTextarea.oninput = () => schedulePreview();
+                container.appendChild(mkLabel("Resultat (JSON caption)"));
                 container.appendChild(resultTextarea);
+
+                // ---- 4. Preview canvas (bbox visuelles) ----
+                const previewHeader = document.createElement("div");
+                Object.assign(previewHeader.style, {
+                    fontSize: "10px", color: "#888", display: "flex", justifyContent: "space-between",
+                });
+                container.appendChild(mkLabel("Preview"));
+                container.appendChild(previewHeader);
+
+                const canvasWrap = document.createElement("div");
+                Object.assign(canvasWrap.style, {
+                    width: "100%", height: "220px",
+                    background: "#1a1a1e", borderRadius: "4px", overflow: "hidden",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                });
+                const canvas = document.createElement("canvas");
+                Object.assign(canvas.style, {
+                    maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block",
+                });
+                canvasWrap.appendChild(canvas);
+                container.appendChild(canvasWrap);
+
+                const previewFooter = document.createElement("div");
+                Object.assign(previewFooter.style, {
+                    fontSize: "10px", color: "#888", textAlign: "center",
+                });
+                container.appendChild(previewFooter);
 
                 // ---- Integration DOM Widget ----
                 const domWidget = node.addDOMWidget("ideogram4_ui", "custom", container, {
                     getValue: () => "",
                     setValue: (v) => {},
-                    getMinHeight: () => 420,
-                    getMaxHeight: () => 1500,
+                    getMinHeight: () => 460,
+                    getMaxHeight: () => 1400,
                 });
 
                 node._resultArea = resultTextarea;
                 node._domWidget = domWidget;
+
+                // Sauver les widgets caches (preset_id, style_id, _api_config)
+                function saveHiddenWidgets() {
+                    const set = (name, val) => {
+                        const w = node.widgets?.find(x => x.name === name);
+                        if (w) w.value = val;
+                    };
+                    set("preset_id", parseInt(presetSelect.value) || 0);
+                    set("style_id", parseInt(styleSelect.value) || 0);
+                    const a = node.widgets?.find(x => x.name === "_api_config");
+                    if (a) a.value = JSON.stringify({ api_url: getApiUrl(), api_key: getApiKey() });
+                }
+                presetSelect.onchange = saveHiddenWidgets;
+                styleSelect.onchange = saveHiddenWidgets;
 
                 // Peupler les dropdowns
                 populateSelect(presetSelect, "presets", "name", "id", "-- Preset IA --",
@@ -301,18 +274,199 @@
                 populateSelect(styleSelect, "styles", "name", "id", "-- Style --",
                     () => restoreFromWidgets(node));
 
+                // ========================================
+                // PREVIEW (meme logique que le node preview dedie)
+                // ========================================
+                function parseCaption(raw) {
+                    if (!raw || !raw.trim()) return null;
+                    try {
+                        let s = raw.trim();
+                        const m = s.match(/```(?:json)?\s*([\s\S]+?)\s*```/);
+                        if (m) s = m[1];
+                        return JSON.parse(s);
+                    } catch (e) { return null; }
+                }
+
+                function readWidthHeight() {
+                    const get = (name) => node.widgets?.find(w => w.name === name);
+                    return {
+                        width: parseInt(get("width")?.value) || 1024,
+                        height: parseInt(get("height")?.value) || 1024,
+                    };
+                }
+
+                function sizeCanvas(w, h) {
+                    const aw = canvasWrap.clientWidth - 16;
+                    const ah = canvasWrap.clientHeight - 16;
+                    if (aw <= 0 || ah <= 0) return { cw: 100, ch: 100 };
+                    const r = w / h;
+                    let cw, ch;
+                    if (aw / ah > r) { ch = ah; cw = ch * r; }
+                    else { cw = aw; ch = cw / r; }
+                    const dpr = window.devicePixelRatio || 1;
+                    canvas.width = cw * dpr;
+                    canvas.height = ch * dpr;
+                    canvas.style.width = cw + "px";
+                    canvas.style.height = ch + "px";
+                    const ctx = canvas.getContext("2d");
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                    return { cw, ch };
+                }
+
+                function drawEmpty(w, h) {
+                    const ctx = canvas.getContext("2d");
+                    const { cw, ch } = sizeCanvas(w, h);
+                    ctx.fillStyle = "#1a1a1e";
+                    ctx.fillRect(0, 0, cw, ch);
+                    ctx.strokeStyle = "#555";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(1, 1, cw - 2, ch - 2);
+                    ctx.fillStyle = "#555";
+                    ctx.font = "12px sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText("Aucune bbox a afficher", cw / 2, ch / 2);
+                }
+
+                function wrapText(ctx, text, x, y, maxW, lineH, maxLines) {
+                    const words = text.split(/\s+/);
+                    let line = "";
+                    let yy = y;
+                    let lines = 0;
+                    for (let i = 0; i < words.length; i++) {
+                        const test = line ? line + " " + words[i] : words[i];
+                        if (ctx.measureText(test).width > maxW && line) {
+                            ctx.fillText(line, x, yy);
+                            line = words[i];
+                            yy += lineH;
+                            lines++;
+                            if (lines >= maxLines) {
+                                ctx.fillText(line + (i < words.length - 1 ? "..." : ""), x, yy);
+                                return;
+                            }
+                        } else { line = test; }
+                    }
+                    if (line) ctx.fillText(line, x, yy);
+                }
+
+                function hexToRgba(hex, alpha) {
+                    const h = hex.replace("#", "");
+                    const r = parseInt(h.substring(0, 2), 16);
+                    const g = parseInt(h.substring(2, 4), 16);
+                    const b = parseInt(h.substring(4, 6), 16);
+                    return `rgba(${r},${g},${b},${alpha})`;
+                }
+
+                function draw() {
+                    const { width, height } = readWidthHeight();
+                    const gcd = (a, b) => b ? gcd(b, a % b) : a;
+                    const g = gcd(width, height);
+                    previewHeader.innerHTML = `<span>${width}x${height}</span><span>${width / g}:${height / g}</span>`;
+
+                    const caption = parseCaption(resultTextarea.value);
+                    if (!caption) {
+                        drawEmpty(width, height);
+                        previewFooter.textContent = "JSON invalide ou absent";
+                        return;
+                    }
+                    const elements = caption?.compositional_deconstruction?.elements || [];
+                    const background = caption?.compositional_deconstruction?.background || "";
+                    if (elements.length === 0 && !background) {
+                        drawEmpty(width, height);
+                        previewFooter.textContent = "JSON vide";
+                        return;
+                    }
+
+                    const ctx = canvas.getContext("2d");
+                    const { cw, ch } = sizeCanvas(width, height);
+                    ctx.fillStyle = "#2a2a2e";
+                    ctx.fillRect(0, 0, cw, ch);
+
+                    const colors = ["#22d3ee", "#84cc16", "#a855f7", "#eab308",
+                                    "#f97316", "#ec4899", "#06b6d4"];
+
+                    let drawn = 0;
+                    elements.forEach((el, idx) => {
+                        if (!el.bbox || !Array.isArray(el.bbox) || el.bbox.length !== 4) return;
+                        drawn++;
+                        const [yMin, xMin, yMax, xMax] = el.bbox;
+                        const x = (xMin / 1000) * cw, y = (yMin / 1000) * ch;
+                        const bw = ((xMax - xMin) / 1000) * cw, bh = ((yMax - yMin) / 1000) * ch;
+                        const color = colors[idx % colors.length];
+
+                        ctx.fillStyle = hexToRgba(color, 0.08);
+                        ctx.fillRect(x, y, bw, bh);
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 1.5;
+                        ctx.strokeRect(x + 0.5, y + 0.5, bw - 1, bh - 1);
+
+                        // Pill d'index
+                        const idxLabel = String(idx + 1).padStart(2, "0");
+                        ctx.font = "bold 11px monospace";
+                        const pillW = Math.max(ctx.measureText(idxLabel).width + 10, 22);
+                        const pillH = 16;
+                        ctx.fillStyle = color;
+                        ctx.fillRect(x, y, pillW, pillH);
+                        ctx.fillStyle = "#000";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText(idxLabel, x + pillW / 2, y + pillH / 2 + 0.5);
+
+                        // Contenu
+                        const textX = x + 6;
+                        const textY = y + pillH + 6;
+                        const textW = bw - 12;
+                        ctx.textAlign = "left";
+                        ctx.textBaseline = "top";
+                        if (el.type === "text" && el.text) {
+                            ctx.fillStyle = color;
+                            ctx.font = "bold 11px sans-serif";
+                            wrapText(ctx, `"${el.text}"`, textX, textY, textW, 13, 2);
+                            if (el.desc) {
+                                ctx.fillStyle = "rgba(255,255,255,0.75)";
+                                ctx.font = "10px sans-serif";
+                                wrapText(ctx, el.desc, textX, textY + 30, textW, 12, 4);
+                            }
+                        } else if (el.desc) {
+                            ctx.fillStyle = "#fff";
+                            ctx.font = "11px sans-serif";
+                            wrapText(ctx, el.desc, textX, textY, textW, 13, 5);
+                        }
+                    });
+
+                    if (background) {
+                        const bgH = Math.min(40, ch * 0.18);
+                        const bgY = ch - bgH;
+                        ctx.fillStyle = "rgba(0,0,0,0.7)";
+                        ctx.fillRect(0, bgY, cw, bgH);
+                        ctx.fillStyle = "rgba(255,255,255,0.5)";
+                        ctx.font = "italic 9px sans-serif";
+                        ctx.textAlign = "left";
+                        ctx.textBaseline = "top";
+                        wrapText(ctx, "BG: " + background, 6, bgY + 4, cw - 12, 11, 3);
+                    }
+
+                    previewFooter.textContent = drawn === 0
+                        ? "(JSON valide, mais aucun element avec bbox)"
+                        : `${drawn} element(s)`;
+                }
+
+                function schedulePreview() {
+                    clearTimeout(node._friaPreviewTimer);
+                    node._friaPreviewTimer = setTimeout(draw, 50);
+                }
+
+                // Redessiner sur resize du canvas
+                const ro = new ResizeObserver(schedulePreview);
+                ro.observe(canvasWrap);
+                setTimeout(draw, 200);
+
+                // ========================================
                 // Restauration workflow
+                // ========================================
                 function restoreFromWidgets(n) {
                     const read = (name) => n.widgets?.find(w => w.name === name);
                     try {
-                        const sd = read("seed"); if (sd && sd.value) seedInput.value = sd.value;
-                        const w = read("width"); if (w && w.value) widthInput.value = w.value;
-                        const h = read("height"); if (h && h.value) heightInput.value = h.value;
-                        const d = read("description"); if (d && d.value) descTextarea.value = d.value;
-                        const e1 = read("element_1"); if (e1 && e1.value) elems[0].value = e1.value;
-                        const e2 = read("element_2"); if (e2 && e2.value) elems[1].value = e2.value;
-                        const e3 = read("element_3"); if (e3 && e3.value) elems[2].value = e3.value;
-                        const e4 = read("element_4"); if (e4 && e4.value) elems[3].value = e4.value;
                         const p = read("preset_id");
                         if (p && p.value > 0 && [...presetSelect.options].some(o => o.value === String(p.value))) {
                             presetSelect.value = String(p.value);
@@ -332,17 +486,19 @@
                 }
                 setTimeout(delayedRestore, 100);
 
-                // onExecuted : le Python a appele l'API et a recupere un prompt
+                // onExecuted : le Python a appele l'API
                 const origExec = node.onExecuted;
                 node.onExecuted = function (output) {
                     if (origExec) origExec.call(this, output);
                     const arr = output?.prompt;
-                    if (Array.isArray(arr) && arr.length > 0 && node._resultArea) {
-                        node._resultArea.value = String(arr[0]);
+                    if (Array.isArray(arr) && arr.length > 0) {
+                        resultTextarea.value = String(arr[0]);
+                        schedulePreview();
                     }
                 };
 
-                syncIdeogram4Widget();
+                // Sync initial
+                saveHiddenWidgets();
                 return r;
             };
         },
