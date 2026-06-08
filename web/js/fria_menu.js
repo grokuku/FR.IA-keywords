@@ -164,6 +164,7 @@ function initMenu(appInstance) {
     }));
     dd.appendChild(mkItem("Membres", "👥", () => openMembers()));
     dd.appendChild(mkItem("Paramètres", "⚙️", () => openSettings()));
+    dd.appendChild(mkItem("Update", "🔄", () => openUpdate()));
 
     // Statut serveur
     const statusDiv = document.createElement("div");
@@ -383,4 +384,118 @@ function openSettings() {
         });
         modalRef.close();
     };
+}
+
+// ── Update (git pull sur le repo local) ────────────────────────────
+
+async function openUpdate() {
+    // Modale d'attente
+    const modal = friaOpenModal("🔄 Update FR.IA", `
+        <div style="padding:8px 0;">
+            <p style="color:#ccc; font-size:13px; margin:0 0 12px;">
+                Mise à jour du repo <code style="background:#1a1a1e; padding:1px 5px; border-radius:3px;">FRIA_Tools</code> en cours...
+            </p>
+            <div id="fria-update-spinner" style="text-align:center; padding:20px;">
+                <span style="display:inline-block; width:32px; height:32px; border:3px solid #444; border-top-color:#6366f1; border-radius:50%; animation:fria-spin 1s linear infinite;"></span>
+            </div>
+            <div id="fria-update-log" style="background:#1a1a1e; border:1px solid #333; border-radius:6px; padding:10px; font-family:monospace; font-size:11px; color:#aaa; max-height:280px; overflow-y:auto; white-space:pre-wrap; display:none;"></div>
+        </div>
+        <style>@keyframes fria-spin { to { transform: rotate(360deg); } }</style>
+    `, "520px");
+
+    const logEl = modal.body.querySelector("#fria-update-log");
+    const spinnerEl = modal.body.querySelector("#fria-update-spinner");
+
+    try {
+        const resp = await fetch("/fr_ia/update", { method: "POST" });
+        const data = await resp.json();
+        spinnerEl.style.display = "none";
+        logEl.style.display = "block";
+        logEl.textContent = data.log || "(pas de log)";
+
+        if (data.status === "ok" && data.updated) {
+            // Mise à jour effectuée : proposer de redémarrer
+            const restartSection = document.createElement("div");
+            restartSection.style.cssText = "margin-top:14px; padding:12px; background:#1a2e1a; border:1px solid #2d5a2d; border-radius:6px;";
+            restartSection.innerHTML = `
+                <p style="color:#4ade80; font-size:13px; margin:0 0 8px;">
+                    ✓ Mise à jour installée. Un redémarrage de ComfyUI est nécessaire pour charger les nouveaux fichiers.
+                </p>
+                <div style="display:flex; gap:8px; justify-content:flex-end;">
+                    <button id="fria-update-later" style="padding:6px 14px; border-radius:6px; border:1px solid #555; background:transparent; color:#ccc; cursor:pointer; font-size:12px;">Plus tard</button>
+                    <button id="fria-update-restart" style="padding:6px 14px; border-radius:6px; border:none; background:#6366f1; color:white; cursor:pointer; font-size:12px; font-weight:600;">Redémarrer ComfyUI</button>
+                </div>
+            `;
+            modal.body.appendChild(restartSection);
+
+            modal.body.querySelector("#fria-update-later").onclick = () => modal.close();
+            modal.body.querySelector("#fria-update-restart").onclick = async () => {
+                const btn = modal.body.querySelector("#fria-update-restart");
+                btn.disabled = true;
+                btn.textContent = "Redémarrage...";
+                // Remplacer le contenu de la modale par un message d'attente
+                modal.body.innerHTML = `
+                    <div style="text-align:center; padding:40px 20px;">
+                        <div style="font-size:32px; margin-bottom:12px;">🔄</div>
+                        <p style="color:#fff; font-size:14px; margin:0 0 6px; font-weight:600;">ComfyUI redémarre...</p>
+                        <p style="color:#888; font-size:12px; margin:0;">Cette page se reconnectera automatiquement dans quelques secondes.</p>
+                    </div>
+                `;
+                try {
+                    await fetch("/fr_ia/restart", { method: "POST" });
+                } catch (e) {
+                    // Normal : la connexion est coupée pendant le restart
+                }
+                // Tenter de reconnecter toutes les 2s
+                let attempts = 0;
+                const reconnectInterval = setInterval(() => {
+                    attempts++;
+                    if (attempts > 30) {
+                        clearInterval(reconnectInterval);
+                        modal.body.innerHTML = `
+                            <div style="text-align:center; padding:40px 20px;">
+                                <p style="color:#f87171; font-size:14px;">Le redémarrage prend plus longtemps que prévu.</p>
+                                <p style="color:#888; font-size:12px;">Rechargez manuellement la page ComfyUI.</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    fetch("/fr_ia/update", { method: "POST" })
+                        .then(r => {
+                            if (r.ok || r.status === 400) {
+                                clearInterval(reconnectInterval);
+                                location.reload();
+                            }
+                        })
+                        .catch(() => {});
+                }, 2000);
+            };
+        } else if (data.status === "ok" && !data.updated) {
+            // Déjà à jour
+            const okSection = document.createElement("div");
+            okSection.style.cssText = "margin-top:14px; padding:12px; background:#1a2e1a; border:1px solid #2d5a2d; border-radius:6px; text-align:center;";
+            okSection.innerHTML = `<p style="color:#4ade80; font-size:13px; margin:0 0 8px;">✓ Vous êtes déjà à jour.</p>`;
+            const closeBtn = document.createElement("button");
+            closeBtn.textContent = "Fermer";
+            Object.assign(closeBtn.style, { padding: "6px 14px", borderRadius: "6px", border: "1px solid #555", background: "transparent", color: "#ccc", cursor: "pointer", fontSize: "12px" });
+            closeBtn.onclick = () => modal.close();
+            okSection.appendChild(closeBtn);
+            modal.body.appendChild(okSection);
+        } else {
+            // Erreur
+            const errSection = document.createElement("div");
+            errSection.style.cssText = "margin-top:14px; padding:12px; background:#2e1a1a; border:1px solid #5a2d2d; border-radius:6px; text-align:center;";
+            errSection.innerHTML = `<p style="color:#f87171; font-size:13px; margin:0 0 8px;">✗ ${data.message || "Erreur inconnue"}</p>`;
+            const closeBtn = document.createElement("button");
+            closeBtn.textContent = "Fermer";
+            Object.assign(closeBtn.style, { padding: "6px 14px", borderRadius: "6px", border: "1px solid #555", background: "transparent", color: "#ccc", cursor: "pointer", fontSize: "12px" });
+            closeBtn.onclick = () => modal.close();
+            errSection.appendChild(closeBtn);
+            modal.body.appendChild(errSection);
+        }
+    } catch (err) {
+        spinnerEl.style.display = "none";
+        logEl.style.display = "block";
+        logEl.textContent = "Erreur réseau : " + err.message;
+    }
 }

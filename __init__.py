@@ -6,6 +6,13 @@ On importe les nodes depuis le sous-dossier FRIA_ComfyUI/.
 import importlib.util
 import os
 
+# Acces au serveur HTTP de ComfyUI pour enregistrer des routes
+try:
+    import server
+    _routes = server.PromptServer.instance.routes
+except Exception:
+    _routes = None
+
 _base = os.path.dirname(os.path.abspath(__file__))
 
 def _load_module(filepath, name):
@@ -69,5 +76,25 @@ if _diag_mod and hasattr(_diag_mod, "FRIADiagnosticNode"):
     cls = _diag_mod.FRIADiagnosticNode
     NODE_CLASS_MAPPINGS["FRIADiagnosticNode"] = cls
     NODE_DISPLAY_NAME_MAPPINGS["FRIADiagnosticNode"] = "FR.IA Diagnostic"
+
+# ── Routes HTTP (update + restart) ──────────────────────────────────
+# Ces routes sont appelees par le menu ComfyUI (fria_menu.js) pour
+# mettre a jour le repo Git local. Elles n'interagissent PAS avec le
+# backend distant — tout reste sur la machine ComfyUI.
+
+if _routes is not None:
+    from aiohttp import web as _aio_web
+
+    @_routes.post("/fr_ia/update")
+    async def _fr_ia_update_route(request):
+        from FRIA_ComfyUI import update_manager
+        result = update_manager.update_repo()
+        return _aio_web.json_response(result)
+
+    @_routes.post("/fr_ia/restart")
+    async def _fr_ia_restart_route(request):
+        from FRIA_ComfyUI import update_manager
+        result = update_manager.restart_server()
+        return _aio_web.json_response(result)
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
