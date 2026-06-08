@@ -102,8 +102,48 @@
     }
 
     /* Solarized */
-    [data-theme="solarized"] {}
-    [data-theme="solarized"].dark {}
+    [data-theme="solarized"] {
+      --bg-body: #fdf6e3;
+      --bg-panel-left: #eee8d5;
+      --bg-panel-right-top: #fdf6e3;
+      --bg-panel-right-bottom: #fdf6e3;
+      --text-primary: #586e75;
+      --text-secondary: #657b83;
+      --text-tertiary: #b58900;
+      --bg-header: #b58900;
+      --bg-modal: #fdf6e3;
+      --bg-modal-header: #eee8d5;
+      --border: #eee8d5;
+      --accent: #268bd2;
+      --accent-hover: #2aa198;
+      --input-bg: #fdf6e3;
+      --input-border: #93a1a1;
+      --rose-bg: #fdf6e3;
+      --rose-text: #dc322f;
+      --sfw-bg: #eee8d5;
+      --sfw-text: #859900;
+    }
+    [data-theme="solarized"].dark {
+      --bg-body: #002b36;
+      --bg-panel-left: #073642;
+      --bg-panel-right-top: #002b36;
+      --bg-panel-right-bottom: #002b36;
+      --text-primary: #93a1a1;
+      --text-secondary: #839496;
+      --text-tertiary: #b58900;
+      --bg-header: #073642;
+      --bg-modal: #073642;
+      --bg-modal-header: #002b36;
+      --border: #586e75;
+      --accent: #268bd2;
+      --accent-hover: #2aa198;
+      --input-bg: #002b36;
+      --input-border: #586e75;
+      --rose-bg: #073642;
+      --rose-text: #dc322f;
+      --sfw-bg: #073642;
+      --sfw-text: #859900;
+    }
 
     /* Nord */
     [data-theme="nord"] {
@@ -334,58 +374,127 @@
 
     /* Surfaces (cards, modals, panels interiors) */
     .bg-white, .bg-slate-50 { background-color: var(--bg-modal) !important; }
+    .bg-slate-50\/50 { background-color: var(--bg-modal) !important; }
     .dark .dark\:bg-slate-800,
-    .dark .dark\:bg-slate-800\/80 { background-color: var(--bg-modal) !important; }
+    .dark .dark\:bg-slate-800\/80,
+    .dark .dark\:bg-slate-800\/50,
+    .dark .dark\:bg-slate-800\/30 { background-color: var(--bg-modal) !important; }
+    .bg-slate-200 { background-color: var(--bg-modal-header) !important; }
+    .bg-slate-700 { background-color: var(--input-bg) !important; }
+    .bg-slate-800 { background-color: var(--bg-modal) !important; }
+    .bg-slate-900 { background-color: var(--bg-body) !important; }
+    .bg-slate-950 { background-color: var(--bg-body) !important; }
+    .bg-slate-900\/40 { background-color: var(--bg-header) !important; }
+
+    /* Surfaces accent (badges, tags) */
+    .bg-indigo-100 { background-color: var(--sfw-bg) !important; }
+    .bg-indigo-50 { background-color: var(--sfw-bg) !important; }
+    .bg-indigo-500 { background-color: var(--accent) !important; }
+    .bg-indigo-900\/30,
+    .bg-indigo-900\/50,
+    .bg-indigo-900\/20 { background-color: var(--accent) !important; }
+
+    /* Overlay sur header (dropdown theme) */
+    .bg-black\/20 { background-color: rgba(0,0,0,0.2) !important; }
+    .bg-black\/30 { background-color: rgba(0,0,0,0.3) !important; }
+    .hover\:bg-black\/30:hover { background-color: rgba(0,0,0,0.3) !important; }
 
     /* Inputs, selects, elevated surfaces */
     .bg-slate-100 { background-color: var(--input-bg) !important; }
     .dark .dark\:bg-slate-700,
     .dark .dark\:bg-slate-700\/50,
-    .dark .dark\:bg-slate-700\/30 { background-color: var(--input-bg) !important; }
+    .dark .dark\:bg-slate-700\/30,
+    .dark .dark\:bg-slate-700\/20 { background-color: var(--input-bg) !important; }
 
     /* Textes principaux */
+    .text-slate-900,
     .text-slate-800,
     .text-slate-700 { color: var(--text-primary) !important; }
     .dark .dark\:text-slate-100,
     .dark .dark\:text-slate-200 { color: var(--text-primary) !important; }
+    .text-slate-200 { color: var(--text-primary) !important; opacity: 0.85; }
+    .text-slate-300 { color: var(--text-primary) !important; opacity: 0.7; }
 
     /* Textes secondaires */
     .text-slate-600,
     .text-slate-500 { color: var(--text-secondary) !important; }
     .dark .dark\:text-slate-300 { color: var(--text-secondary) !important; }
-
-    /* Textes discrets (muted) */
     .text-slate-400 { color: var(--text-primary) !important; opacity: 0.5; }
-    .text-slate-300 { color: var(--text-primary) !important; opacity: 0.35; }
+    .text-slate-100 { color: var(--text-primary) !important; opacity: 0.9; }
     .dark .dark\:text-slate-400,
     .dark .dark\:text-slate-500 { color: var(--text-primary) !important; opacity: 0.6; }
 
+    /* Couleurs sémantiques (suivent l'accent du thème) */
+    .text-rose-700,
+    .text-rose-600,
+    .text-rose-500,
+    .text-rose-400,
+    .text-rose-300 { color: var(--rose-text) !important; }
+    .text-emerald-700,
+    .text-emerald-600,
+    .text-emerald-500,
+    .text-emerald-400,
+    .text-emerald-300 { color: var(--sfw-text) !important; }
+    .text-amber-700,
+    .text-amber-600,
+    .text-amber-500,
+    .text-amber-500\/70,
+    .text-amber-400 { color: var(--text-tertiary) !important; }
+    .text-red-700,
+    .text-red-600,
+    .text-red-500,
+    .text-red-400 { color: var(--rose-text) !important; }
+
     /* Bordures generiques */
+    .border-slate-100,
     .border-slate-200,
     .border-slate-200\/60,
     .border-slate-300 { border-color: var(--border) !important; }
+    .dark .dark\:border-slate-500,
     .dark .dark\:border-slate-600,
     .dark .dark\:border-slate-700,
     .dark .dark\:border-slate-700\/60 { border-color: var(--border) !important; }
+    .divide-slate-100 > * + * { border-color: var(--border) !important; }
+    .divide-slate-700 > * + * { border-color: var(--border) !important; }
 
     /* Accent (indigo = couleur primaire) */
     .bg-indigo-600 { background-color: var(--accent) !important; }
     .hover\:bg-indigo-500:hover { background-color: var(--accent-hover) !important; }
-    .text-indigo-500,
+    .text-indigo-900,
+    .text-indigo-800,
+    .text-indigo-700,
     .text-indigo-600,
-    .text-indigo-700 { color: var(--accent) !important; }
+    .text-indigo-500 { color: var(--accent) !important; }
     .dark .dark\:text-indigo-400,
-    .dark .dark\:text-indigo-300 { color: var(--accent) !important; }
+    .dark .dark\:text-indigo-300,
+    .dark .dark\:text-indigo-200 { color: var(--accent) !important; }
     .hover\:text-indigo-700:hover { color: var(--accent-hover) !important; }
-    .border-indigo-200 { border-color: var(--accent) !important; }
+    .border-indigo-100,
+    .border-indigo-200,
+    .border-indigo-300,
+    .border-indigo-500 { border-color: var(--accent) !important; }
+    .border-indigo-800\/30 { border-color: var(--accent) !important; }
+    .ring-indigo-500,
+    .focus\:ring-indigo-500:focus,
+    .focus\:ring-2:focus { --tw-ring-color: var(--accent) !important; }
+    .shadow-slate-700\/30 { --tw-shadow-color: var(--bg-header) !important; }
 
     /* NSFW badges */
     .bg-rose-100 { background-color: var(--rose-bg) !important; }
-    .text-rose-700,
-    .text-rose-500,
-    .text-rose-400 { color: var(--rose-text) !important; }
-    .dark .dark\:text-rose-300 { color: var(--rose-text) !important; }
     .border-rose-200 { border-color: var(--rose-text) !important; }
+    .border-rose-900\/50,
+    .border-red-800\/30 { border-color: var(--rose-text) !important; }
+    .bg-rose-50 { background-color: var(--rose-bg) !important; }
+    .bg-red-900\/40,
+    .bg-red-50 { background-color: var(--rose-bg) !important; }
+
+    /* SFW badges */
+    .bg-emerald-50 { background-color: var(--sfw-bg) !important; }
+    .bg-emerald-500,
+    .bg-emerald-600 { background-color: var(--sfw-text) !important; }
+    .bg-emerald-900\/30 { background-color: var(--sfw-text) !important; }
+    .border-emerald-200,
+    .border-emerald-800 { border-color: var(--sfw-text) !important; }
 
     /* Placeholder */
     .dark .dark\:placeholder-slate-400::placeholder { color: var(--text-primary) !important; opacity: 0.4; }
