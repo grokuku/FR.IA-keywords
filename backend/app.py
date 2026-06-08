@@ -70,7 +70,7 @@ _DEFAULT_FORMAT_BY_TYPE = {
     'anima': 'text',
     'qwen':  'text',
     'liste': 'text',
-    'z-image': 'json',  # exemple : modèle natif JSON
+    'ideogram4': 'json',  # structured JSON caption
 }
 
 def _default_format_for_type(prompt_type):
@@ -317,10 +317,10 @@ def _migrate_templates_to_english():
         existing = cur.execute("SELECT COUNT(*) FROM prompt_templates WHERE is_default = 1").fetchone()[0]
         if existing > 0:
             tmpl_version = cur.execute("SELECT value FROM app_settings WHERE key = 'templates_version'").fetchone()
-            if not tmpl_version or tmpl_version[0] < '2':
+            if not tmpl_version or tmpl_version[0] < '3':
                 cur.execute("DELETE FROM prompt_templates WHERE is_default = 1")
                 _insert_default_templates(mconn)
-                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '2')")
+                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '3')")
                 mconn.commit()
         mconn.close()
     except Exception as e:
@@ -437,6 +437,91 @@ Every category should be relevant to the image being described.
 Adapt categories based on content (e.g. architecture, nature, portrait...).
 Tags should be concise but descriptive."""
 
+    DOC_IDEOGRAM4 = """Ideogram 4 uses STRUCTURED JSON CAPTIONS (not plain text). The model was trained exclusively on this format, and matching it produces significantly better results.
+
+## Required schema
+Every caption has THREE top-level fields. Only `compositional_deconstruction` is mandatory; the other two are strongly recommended.
+
+{
+  "high_level_description": "1-2 sentence summary of the entire image",
+  "style_description": { "aesthetics", "lighting", "photo" OR "art_style", "medium", "color_palette" (optional) },
+  "compositional_deconstruction": {
+    "background": "Description of the background/environment",
+    "elements": [
+      { "type": "obj", "bbox": [y_min, x_min, y_max, x_max], "desc": "..." },
+      { "type": "text", "bbox": [...], "text": "literal text", "desc": "..." }
+    ]
+  }
+}
+
+## STRICT rules
+1. KEY ORDER matters — the model was trained on a specific order. Always output keys in this sequence:
+   - high_level_description (string)
+   - style_description
+   - compositional_deconstruction
+   - Within style_description (photo path): aesthetics, lighting, photo, medium, color_palette
+   - Within style_description (non-photo path): aesthetics, lighting, medium, art_style, color_palette
+   - Within compositional_deconstruction: background FIRST, then elements
+   - Within element "obj": type, bbox, desc, color_palette
+   - Within element "text": type, bbox, text, desc, color_palette
+2. Use EITHER "photo" OR "art_style" in style_description — never both, never neither.
+3. Required inside style_description: aesthetics, lighting, medium. color_palette is the only optional field.
+4. `background` is REQUIRED in compositional_deconstruction (the user-provided "general description" largely feeds this field).
+5. `elements` is REQUIRED, must be an array (can be empty if no subjects).
+6. `bbox` format: [y_min, x_min, y_max, x_max] in NORMALIZED 0-1000 coordinates (origin top-left). The image is 1000x1000 in this space regardless of actual width/height.
+   - For a full-frame element: roughly [0, 0, 1000, 1000]
+   - For a center subject: roughly [200, 250, 800, 750]
+   - Never output values outside 0-1000.
+   - bbox is OPTIONAL: omit if the LLM is unsure. Better to omit than to guess badly.
+7. `color_palette` format: array of UPPERCASE #RRGGBB strings (e.g. "#1B1B2F", NOT "#1b1b2f" or "#fff"). Up to 16 colors in style_description, up to 5 per element.
+8. Each element's `type` is either "obj" (object/subject) or "text" (literal text to render in the image).
+9. Output format: PURE JSON, NO code block (no ```json wrapping), NO commentary, NO markdown.
+10. The first element in `elements` should typically be the main subject (most prominent). Arrange other elements by visual importance.
+
+## Mapping user input to JSON fields
+- The "general description" → high_level_description + the style_description fields (aesthetics, lighting, photo/art_style, medium) + the background of compositional_deconstruction.
+- Each "element" → one entry in the elements array (type "obj", desc = the element's text, bbox = calculated from the scene).
+- The IMAGE DIMENSIONS line is a HINT for aspect ratio. Map the LLM's bbox calculations to match the requested aspect ratio (e.g. for 16:9, use wider bboxes).
+- The STYLE block, if provided, MUST be preserved verbatim inside the appropriate style_description field.
+
+## Tips
+- Don't over-specify: 2-5 elements is usually enough. The "general description" handles the rest.
+- bbox is OPTIONAL: when in doubt, omit. The model performs well even without explicit positioning.
+- `medium` should be one of: "photograph", "illustration", "3d_render", "painting", "graphic_design", "sketch", "watercolor", "anime"...
+- For "aesthetics" use 2-4 keywords: "moody, cinematic, desaturated", "warm, playful, vibrant", "minimal, professional, geometric"...
+- For "lighting" be specific: "golden hour, rim light", "low-key, deep shadows", "even, diffuse studio lighting"...
+- For "photo" (if used) include camera details: "35mm, f/1.4, shallow DoF", "wide angle, f/8, long exposure"...
+- For "art_style" (if used) describe the look: "flat vector illustration, bold outlines", "cel shading, vibrant colors"...
+
+## Example input
+GENERAL DESCRIPTION (scene, style, lighting, mood):
+A medium-shot photograph of a barista pouring latte art in a cozy cafe.
+ELEMENTS TO PLACE IN THE SCENE:
+  1. A young barista with curly hair, focused expression
+  2. A porcelain cup with intricate latte art
+  3. An espresso machine with brass details
+IMAGE DIMENSIONS: 1024x1024 pixels (aspect ratio: 1:1)
+
+## Expected output
+{
+  "high_level_description": "A medium-shot photograph of a barista carefully pouring latte art in a warm, cozy cafe.",
+  "style_description": {
+    "aesthetics": "warm, intimate, artisanal",
+    "lighting": "soft natural window light, gentle shadows",
+    "photo": "shallow depth of field, eye-level, 50mm lens",
+    "medium": "photograph",
+    "color_palette": ["#F5E6D3", "#6F4E37", "#FFFFFF", "#2C1810", "#D4A574"]
+  },
+  "compositional_deconstruction": {
+    "background": "A blurred cafe interior with warm wooden counters, hanging plants, and the suggestion of other patrons in soft focus.",
+    "elements": [
+      {"type": "obj", "bbox": [200, 250, 800, 700], "desc": "A young barista with curly auburn hair and a focused expression, wearing a cream apron over a dark shirt."},
+      {"type": "obj", "bbox": [550, 400, 750, 650], "desc": "A white porcelain cup with intricate rosetta latte art, sitting on a small wooden saucer."},
+      {"type": "obj", "bbox": [100, 600, 500, 1000], "desc": "A vintage brass espresso machine with steam rising from its portafilter, polished wood accents."}
+    ]
+  }
+}"""
+
     DOCS = {
         "sd15": DOC_SD15,
         "sdxl": DOC_SDXL,
@@ -444,6 +529,7 @@ Tags should be concise but descriptive."""
         "anima": DOC_ANIMA,
         "qwen": DOC_QWEN,
         "liste": DOC_LISTE,
+        "ideogram4": DOC_IDEOGRAM4,
     }
 
     # ---- Output format rules ----
@@ -497,14 +583,24 @@ Mandatory rules:
             "subject:\n- man, 35 years old\n- short brown hair\n- glasses\n\nclothing:\n- gray suit\n- black tie\n\nstyle:\n- photorealistic\n- sharp focus\n\nenvironment:\n- modern office\n- floor-to-ceiling window\n\nlighting:\n- natural light\n- backlit\n\nexpression:\n- confident\n- looking at camera",
             "subject:\n- medieval castle\n- ancient ruins\n\nstyle:\n- epic fantasy\n- cinematic\n- highly detailed\n\nenvironment:\n- mountain peak\n- morning mist\n- dramatic clouds\n\ncolors:\n- warm tones\n- orange and purple\n\nmood:\n- mysterious\n- majestic",
         ]),
+        "ideogram4": json.dumps([
+            '{"high_level_description": "A medium-shot photograph of a barista carefully pouring latte art in a warm, cozy cafe.", "style_description": {"aesthetics": "warm, intimate, artisanal", "lighting": "soft natural window light, gentle shadows", "photo": "shallow depth of field, eye-level, 50mm lens", "medium": "photograph", "color_palette": ["#F5E6D3", "#6F4E37", "#FFFFFF", "#2C1810", "#D4A574"]}, "compositional_deconstruction": {"background": "A blurred cafe interior with warm wooden counters, hanging plants, and the suggestion of other patrons in soft focus.", "elements": [{"type": "obj", "bbox": [200, 250, 800, 700], "desc": "A young barista with curly auburn hair and a focused expression, wearing a cream apron over a dark shirt."}, {"type": "obj", "bbox": [550, 400, 750, 650], "desc": "A white porcelain cup with intricate rosetta latte art on a wooden saucer."}, {"type": "obj", "bbox": [100, 600, 500, 1000], "desc": "A vintage brass espresso machine with steam rising from its portafilter."}]}}',
+            '{"high_level_description": "A lone sailboat on calm water at sunset.", "style_description": {"aesthetics": "serene, warm, golden hour", "lighting": "golden hour backlighting, warm atmospheric haze", "photo": "wide angle, f/8, long exposure", "medium": "photograph", "color_palette": ["#FF6B35", "#F7C59F", "#004E89", "#1A659E", "#2B2D42"]}, "compositional_deconstruction": {"background": "A calm ocean stretching to a low horizon, sky washed in orange and pink with thin wisps of cloud.", "elements": [{"type": "obj", "desc": "A single sailboat with a white triangular sail, silhouetted against the setting sun."}]}}',
+            '{"high_level_description": "A clean, modern business card layout for a tech company.", "style_description": {"aesthetics": "minimal, professional, geometric", "lighting": "even, diffuse studio lighting", "medium": "graphic_design", "art_style": "flat vector design, generous whitespace, sans-serif typography", "color_palette": ["#FFFFFF", "#F0F0F0", "#333333", "#0066FF", "#00CC88"]}, "compositional_deconstruction": {"background": "A solid off-white card surface with subtle paper texture.", "elements": [{"type": "text", "text": "ACME TECH", "desc": "Bold dark grey sans-serif company name across the upper third of the card."}, {"type": "text", "text": "hello@acme.tech", "desc": "Small blue sans-serif contact email near the bottom of the card."}]}}',
+        ]),
     }
 
     # ---- Insert templates ----
-    for pt in ["sdxl", "sd15", "flux", "anima", "qwen", "liste"]:
+    for pt in ["sdxl", "sd15", "flux", "anima", "qwen", "liste", "ideogram4"]:
         doc = DOCS.get(pt, "")
         examples = EXAMPLES.get(pt, "[]")
         for fmt in ["text", "markdown", "json"]:
-            fmt_rule = FORMAT_RULES.get(fmt, FORMAT_RULES["text"])
+            # Ideogram 4 a son propre schema JSON defini dans DOC_IDEOGRAM4,
+            # donc on n'ajoute pas de regle de format generique.
+            if pt == "ideogram4":
+                fmt_rule = "Follow the EXACT JSON schema described above. Output PURE JSON, NO code block, NO commentary, NO markdown."
+            else:
+                fmt_rule = FORMAT_RULES.get(fmt, FORMAT_RULES["text"])
             system_prompt = f"""You are an expert assistant for image prompt generation.
 Your task: transform the provided content into an optimized {pt.upper()} prompt.
 
@@ -2091,6 +2187,8 @@ def enhance_prompt():
     special_instructions = data.get('special_instructions', '').strip()
     ep_elements = data.get('ep_elements', [])
     random_count = int(data.get('random_count', 0))
+    width = int(data.get('width') or 0)
+    height = int(data.get('height') or 0)
 
     # Resoudre le style si style_id fourni
     negative_prompt = ''
@@ -2168,16 +2266,40 @@ def enhance_prompt():
 
     rand_text = ', '.join(rand_keywords) if rand_keywords else ''
 
-    # Fusionner avec priorites
-    merged_parts = []
-    if text:
-        merged_parts.append(f"[PRIORITE HAUTE] {text}")
-    if ep_text:
-        merged_parts.append(f"[PRIORITE MOYENNE] {ep_text}")
-    if rand_text:
-        merged_parts.append(f"[PRIORITE BASSE] {rand_text}")
-
-    merged_text = '\n'.join(merged_parts)
+    # ── Branche specifique Ideogram 4 ─────────────────────────────
+    # Pour Ideogram 4 on structure l'entree en sections nommees
+    # (description generale + 4 elements + dimensions) au lieu du
+    # format avec priorites [PRIORITE ...] qui n'a pas de sens ici.
+    if prompt_type == 'ideogram4':
+        parts = []
+        if text:
+            parts.append("GENERAL DESCRIPTION (scene, style, lighting, mood):\n" + text)
+        # Les elements EP de type "text" sont les sujets principaux
+        named_elems = [e.get('text', '').strip() for e in ep_elements
+                       if e.get('type') == 'text' and e.get('text', '').strip()]
+        if named_elems:
+            parts.append("ELEMENTS TO PLACE IN THE SCENE:")
+            for i, desc in enumerate(named_elems, 1):
+                parts.append(f"  {i}. {desc}")
+        if width and height:
+            from math import gcd
+            g = gcd(width, height)
+            parts.append(f"IMAGE DIMENSIONS: {width}x{height} pixels (aspect ratio: {width//g}:{height//g})")
+        if style_text:
+            parts.append("STYLE (must be preserved verbatim):\n" + style_text)
+        if special_instructions:
+            parts.append("ADDITIONAL INSTRUCTIONS:\n" + special_instructions)
+        merged_text = '\n\n'.join(parts)
+    else:
+        # Fusionner avec priorites (autres types)
+        merged_parts = []
+        if text:
+            merged_parts.append(f"[PRIORITE HAUTE] {text}")
+        if ep_text:
+            merged_parts.append(f"[PRIORITE MOYENNE] {ep_text}")
+        if rand_text:
+            merged_parts.append(f"[PRIORITE BASSE] {rand_text}")
+        merged_text = '\n'.join(merged_parts)
 
     if not merged_text.strip():
         return jsonify({'error': 'Aucun contenu a generer'}), 400
@@ -2210,6 +2332,7 @@ def enhance_prompt():
         'flux': 'Prompt Flux, description longue et naturelle en anglais.',
         'anima': 'Prompt Anime/Manga, tags Danbooru avec suffixes specifiques (pixel art, lineart, flat color, etc.).',
         'qwen': 'Prompt Qwen, format optimise pour modele Qwen2-VL / image generation.',
+        'ideogram4': 'JSON Ideogram 4 : caption structuree avec high_level_description, style_description (aesthetics, lighting, photo/art_style, medium, color_palette optionnel) et compositional_deconstruction (background + elements avec bbox optionnelle en coordonnees 0-1000). Format JSON strict, ordre des cles preserve.',
     }
 
     format_instruction = type_formats.get(prompt_type, type_formats['sdxl'])
