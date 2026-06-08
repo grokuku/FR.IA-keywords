@@ -2557,6 +2557,16 @@ def generate_prompt():
             except Exception:
                 pass
 
+        elif elem.get('type') == 'raw' and elem.get('text'):
+            # Custom text du node ComfyUI : on l'ajoute TEL QUEL dans le prompt.
+            # Pas de recherche semantique, pas de pioche aleatoire.
+            kind = 'raw'
+            raw_text = elem['text'].strip()
+            if raw_text:
+                keywords.append(raw_text)
+                debug.append({'keyword': raw_text, 'source': 'raw', 'score': 0})
+            continue  # pas de kid a chercher en BDD
+
         if kid:
             cur.execute("SELECT keyword FROM keywords WHERE id = ?", (kid,))
             row = cur.fetchone()

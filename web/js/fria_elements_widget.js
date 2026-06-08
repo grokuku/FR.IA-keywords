@@ -88,7 +88,7 @@ function hideWidget(node, name) {
                     w.value = JSON.stringify({
                         elements: node._friaElements.map(e => {
                             if (e.type === "filter") return { type: "filter", id: e.id, name: e.name || "", author: e.author || "", is_public: !!e.is_public };
-                            if (e.type === "text") return { type: "text", text: e.text };
+                            if (e.type === "text") return { type: "raw", text: e.text };
                             return e;
                         }),
                         random_count: randCb.checked ? (parseInt(randN.value) || 3) : 0,
@@ -439,7 +439,7 @@ function hideWidget(node, name) {
 
                     elements.forEach(e => {
                         if (e.type === "filter") payload.elements.push({ type: "filter", id: e.id });
-                        else if (e.type === "text") payload.elements.push({ type: "text", text: e.text });
+                        else if (e.type === "text") payload.elements.push({ type: "raw", text: e.text });
                     });
 
                     if (randCb.checked) {
@@ -536,7 +536,11 @@ function hideWidget(node, name) {
                                         is_public: !!e.is_public,
                                     };
                                 }
-                                return e; // text elements sont complets
+                                if (e.type === "text" || e.type === "raw") {
+                                    // Format interne = "text" pour l'affichage
+                                    return { type: "text", text: e.text || "" };
+                                }
+                                return e;
                             });
                             renderList();
                         }
