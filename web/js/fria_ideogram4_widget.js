@@ -3,14 +3,17 @@
  *
  * Layout :
  *   - Widgets ComfyUI NATIFS (visibles) : seed, width, height, description,
- *     element_1..4. Serielises/restaures automatiquement par ComfyUI.
+ *     element_1..4. Sauvegardes/restaures automatiquement par ComfyUI.
  *   - DOM widget custom (sous les widgets natifs) :
  *     - Preset IA + Style (grille 2 col)
  *     - Bouton Generate
  *     - Resultat (le JSON caption)
- *     - Preview canvas (bbox du JSON)
  *
- * Seuls preset_id, style_id, _api_config sont caches (synces depuis le DOM).
+ * Seul _api_config est cache (contient api_url, api_key, preset_id, style_id).
+ * Plus de widgets preset_id/style_id separees -> pas de "points superposes"
+ * sur la zone d'inputs du node.
+ *
+ * Sortie IMAGE (preview) generee cote Python : voir build_caption().
  */
 (function waitForApp() {
     const app = window.app || window.comfyAPI?.app?.app;
@@ -26,9 +29,7 @@
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Cacher UNIQUEMENT preset_id, style_id, _api_config ----
-                // seed, width, height, description, element_1..4 restent
-                // visibles (widgets ComfyUI natifs avec sockets).
+                // ---- Cacher UNIQUEMENT _api_config ----
                 const hideWidget = (n, name) => {
                     const w = n.widgets?.find(x => x.name === name);
                     if (w) {
@@ -38,9 +39,7 @@
                         if (w.parentEl) w.parentEl.style.display = "none";
                     }
                 };
-                ["preset_id", "style_id", "_api_config"].forEach(
-                    n => hideWidget(node, n)
-                );
+                ["_api_config"].forEach(n => hideWidget(node, n));
 
                 // ---- Utilitaires ----
                 const getApiUrl = () => "https://kw.holaf.fr/api";
@@ -97,7 +96,7 @@
                 }
 
                 // ========================================
-                // DOM WIDGET — preset, style, generate, result, preview
+                // DOM WIDGET
                 // ========================================
 
                 const container = document.createElement("div");
@@ -156,11 +155,11 @@
                 generateBtn.onmouseleave = () => generateBtn.style.background = "#6366f1";
                 container.appendChild(generateBtn);
 
-                // ---- 3. Resultat ----
+                // ---- 3. Resultat (textarea) ----
                 const resultTextarea = document.createElement("textarea");
                 Object.assign(resultTextarea.style, {
                     width: "100%",
-                    height: "120px", minHeight: "120px", maxHeight: "120px",
+                    height: "220px", minHeight: "220px", maxHeight: "220px",
                     borderRadius: "4px", border: "1px solid #555",
                     padding: "4px", background: "#1a1a1e", color: "#fff",
                     fontSize: "11px", resize: "none", boxSizing: "border-box",
@@ -170,73 +169,72 @@
                 container.appendChild(mkLabel("Resultat (JSON caption)"));
                 container.appendChild(resultTextarea);
 
-                // ---- 4. Preview canvas ----
-                const previewHeader = document.createElement("div");
-                Object.assign(previewHeader.style, {
-                    fontSize: "10px", color: "#888", display: "flex", justifyContent: "space-between",
-                });
-                container.appendChild(mkLabel("Preview"));
-                container.appendChild(previewHeader);
-
-                const canvasWrap = document.createElement("div");
-                Object.assign(canvasWrap.style, {
-                    width: "100%", height: "220px",
-                    background: "#1a1a1e", borderRadius: "4px", overflow: "hidden",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                });
-                const canvas = document.createElement("canvas");
-                Object.assign(canvas.style, {
-                    maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block",
-                });
-                canvasWrap.appendChild(canvas);
-                container.appendChild(canvasWrap);
-
-                const previewFooter = document.createElement("div");
-                Object.assign(previewFooter.style, {
+                // ---- 4. Note preview ----
+                const previewNote = document.createElement("div");
+                Object.assign(previewNote.style, {
                     fontSize: "10px", color: "#888", textAlign: "center",
+                    fontStyle: "italic", padding: "4px",
                 });
-                container.appendChild(previewFooter);
+                previewNote.textContent = "💡 La preview visuelle est dans la sortie IMAGE du node";
+                container.appendChild(previewNote);
 
                 // ---- Integration DOM Widget ----
                 const domWidget = node.addDOMWidget("ideogram4_ui", "custom", container, {
                     getValue: () => "",
                     setValue: (v) => {},
-                    getMinHeight: () => 420,
-                    getMaxHeight: () => 1400,
+                    getMinHeight: () => 320,
+                    getMaxHeight: () => 800,
                 });
 
                 node._resultArea = resultTextarea;
                 node._domWidget = domWidget;
 
                 // ========================================
-                // SAUVEGARDE : DOM → widgets caches
+                // _api_config : tout en un (api_url, api_key, preset_id, style_id)
                 // ========================================
-                function saveHiddenWidgets() {
-                    const set = (name, val) => {
-                        const w = node.widgets?.find(x => x.name === name);
-                        if (w) w.value = val;
-                    };
-                    set("preset_id", parseInt(presetSelect.value) || 0);
-                    set("style_id", parseInt(styleSelect.value) || 0);
+                function readApiConfig() {
                     const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (a) a.value = JSON.stringify({ api_url: getApiUrl(), api_key: getApiKey() });
+                    if (!a || !a.value) {
+                        return { api_url: getApiUrl(), api_key: getApiKey(), preset_id: 0, style_id: 0 };
+                    }
+                    try {
+                        const parsed = JSON.parse(a.value);
+                        return {
+                            api_url: parsed.api_url || getApiUrl(),
+                            api_key: parsed.api_key || getApiKey(),
+                            preset_id: parsed.preset_id || 0,
+                            style_id: parsed.style_id || 0,
+                        };
+                    } catch {
+                        return { api_url: getApiUrl(), api_key: getApiKey(), preset_id: 0, style_id: 0 };
+                    }
                 }
-                presetSelect.onchange = saveHiddenWidgets;
-                styleSelect.onchange = saveHiddenWidgets;
+
+                function saveApiConfig() {
+                    const a = node.widgets?.find(x => x.name === "_api_config");
+                    if (!a) return;
+                    a.value = JSON.stringify({
+                        api_url: getApiUrl(),
+                        api_key: getApiKey(),
+                        preset_id: parseInt(presetSelect.value) || 0,
+                        style_id: parseInt(styleSelect.value) || 0,
+                    });
+                }
+
+                presetSelect.onchange = saveApiConfig;
+                styleSelect.onchange = saveApiConfig;
 
                 // ========================================
-                // RESTORE : widgets caches → DOM (dropdowns)
+                // RESTORE : _api_config → dropdowns
                 // ========================================
                 function restoreFromWidgets(n) {
-                    const read = (name) => n.widgets?.find(w => w.name === name);
+                    const cfg = readApiConfig();
                     try {
-                        const p = read("preset_id");
-                        if (p && p.value > 0 && [...presetSelect.options].some(o => o.value === String(p.value))) {
-                            presetSelect.value = String(p.value);
+                        if (cfg.preset_id > 0 && [...presetSelect.options].some(o => o.value === String(cfg.preset_id))) {
+                            presetSelect.value = String(cfg.preset_id);
                         }
-                        const s = read("style_id");
-                        if (s && s.value > 0 && [...styleSelect.options].some(o => o.value === String(s.value))) {
-                            styleSelect.value = String(s.value);
+                        if (cfg.style_id > 0 && [...styleSelect.options].some(o => o.value === String(cfg.style_id))) {
+                            styleSelect.value = String(cfg.style_id);
                         }
                         return true;
                     } catch { return false; }
@@ -250,18 +248,25 @@
                 }
                 setTimeout(delayedRestore, 100);
 
-                // Peupler les dropdowns (saveHiddenWidgets NE sera pas appele
-                // avant que restoreFromWidgets ait restaure les valeurs).
+                // Peupler les dropdowns (apres init, restoreFromWidgets peut tourner)
                 populateSelect(presetSelect, "presets", "name", "id", "-- Preset IA --",
-                    () => restoreFromWidgets(node));
+                    () => {
+                        restoreFromWidgets(node);
+                        saveApiConfig();
+                    });
                 populateSelect(styleSelect, "styles", "name", "id", "-- Style --",
-                    () => restoreFromWidgets(node));
+                    () => {
+                        restoreFromWidgets(node);
+                        saveApiConfig();
+                    });
+
+                // Init : sauvegarder l'api_config
+                saveApiConfig();
 
                 // ========================================
                 // GENERATE
                 // ========================================
                 generateBtn.onclick = async () => {
-                    // Lire les widgets ComfyUI natifs
                     const get = (name) => node.widgets?.find(w => w.name === name);
                     const description = (get("description")?.value || "").trim();
                     const elTexts = ["element_1", "element_2", "element_3", "element_4"]
@@ -290,209 +295,14 @@
                         const data = await apiPost("enhance", payload);
                         const prompt = data.output || "";
                         resultTextarea.value = prompt;
-                        saveHiddenWidgets();
-                        schedulePreview();
+                        saveApiConfig();
                     } catch (err) {
                         resultTextarea.value = "Erreur: " + err.message;
                     }
                 };
 
                 // ========================================
-                // PREVIEW
-                // ========================================
-                function parseCaption(raw) {
-                    if (!raw || !raw.trim()) return null;
-                    try {
-                        let s = raw.trim();
-                        const m = s.match(/```(?:json)?\s*([\s\S]+?)\s*```/);
-                        if (m) s = m[1];
-                        return JSON.parse(s);
-                    } catch (e) { return null; }
-                }
-
-                function readWidthHeight() {
-                    const get = (name) => node.widgets?.find(w => w.name === name);
-                    return {
-                        width: parseInt(get("width")?.value) || 1024,
-                        height: parseInt(get("height")?.value) || 1024,
-                    };
-                }
-
-                function sizeCanvas(w, h) {
-                    const aw = canvasWrap.clientWidth - 16;
-                    const ah = canvasWrap.clientHeight - 16;
-                    if (aw <= 0 || ah <= 0) return { cw: 100, ch: 100 };
-                    const r = w / h;
-                    let cw, ch;
-                    if (aw / ah > r) { ch = ah; cw = ch * r; }
-                    else { cw = aw; ch = cw / r; }
-                    const dpr = window.devicePixelRatio || 1;
-                    canvas.width = cw * dpr;
-                    canvas.height = ch * dpr;
-                    canvas.style.width = cw + "px";
-                    canvas.style.height = ch + "px";
-                    const ctx = canvas.getContext("2d");
-                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                    return { cw, ch };
-                }
-
-                function drawEmpty(w, h) {
-                    const ctx = canvas.getContext("2d");
-                    const { cw, ch } = sizeCanvas(w, h);
-                    ctx.fillStyle = "#1a1a1e";
-                    ctx.fillRect(0, 0, cw, ch);
-                    ctx.strokeStyle = "#555";
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(1, 1, cw - 2, ch - 2);
-                    ctx.fillStyle = "#555";
-                    ctx.font = "12px sans-serif";
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    ctx.fillText("Aucune bbox a afficher", cw / 2, ch / 2);
-                }
-
-                function wrapText(ctx, text, x, y, maxW, lineH, maxLines) {
-                    const words = text.split(/\s+/);
-                    let line = "";
-                    let yy = y;
-                    let lines = 0;
-                    for (let i = 0; i < words.length; i++) {
-                        const test = line ? line + " " + words[i] : words[i];
-                        if (ctx.measureText(test).width > maxW && line) {
-                            ctx.fillText(line, x, yy);
-                            line = words[i];
-                            yy += lineH;
-                            lines++;
-                            if (lines >= maxLines) {
-                                ctx.fillText(line + (i < words.length - 1 ? "..." : ""), x, yy);
-                                return;
-                            }
-                        } else { line = test; }
-                    }
-                    if (line) ctx.fillText(line, x, yy);
-                }
-
-                function hexToRgba(hex, alpha) {
-                    const h = hex.replace("#", "");
-                    const r = parseInt(h.substring(0, 2), 16);
-                    const g = parseInt(h.substring(2, 4), 16);
-                    const b = parseInt(h.substring(4, 6), 16);
-                    return `rgba(${r},${g},${b},${alpha})`;
-                }
-
-                function draw() {
-                    const { width, height } = readWidthHeight();
-                    const gcd = (a, b) => b ? gcd(b, a % b) : a;
-                    const g = gcd(width, height);
-                    previewHeader.innerHTML = `<span>${width}x${height}</span><span>${width / g}:${height / g}</span>`;
-
-                    const caption = parseCaption(resultTextarea.value);
-                    if (!caption) {
-                        drawEmpty(width, height);
-                        previewFooter.textContent = "JSON invalide ou absent";
-                        return;
-                    }
-                    const elements = caption?.compositional_deconstruction?.elements || [];
-                    const background = caption?.compositional_deconstruction?.background || "";
-                    if (elements.length === 0 && !background) {
-                        drawEmpty(width, height);
-                        previewFooter.textContent = "JSON vide";
-                        return;
-                    }
-
-                    const ctx = canvas.getContext("2d");
-                    const { cw, ch } = sizeCanvas(width, height);
-                    ctx.fillStyle = "#2a2a2e";
-                    ctx.fillRect(0, 0, cw, ch);
-
-                    const colors = ["#22d3ee", "#84cc16", "#a855f7", "#eab308",
-                                    "#f97316", "#ec4899", "#06b6d4"];
-                    let drawn = 0;
-                    elements.forEach((el, idx) => {
-                        if (!el.bbox || !Array.isArray(el.bbox) || el.bbox.length !== 4) return;
-                        drawn++;
-                        const [yMin, xMin, yMax, xMax] = el.bbox;
-                        const x = (xMin / 1000) * cw, y = (yMin / 1000) * ch;
-                        const bw = ((xMax - xMin) / 1000) * cw, bh = ((yMax - yMin) / 1000) * ch;
-                        const color = colors[idx % colors.length];
-
-                        ctx.fillStyle = hexToRgba(color, 0.08);
-                        ctx.fillRect(x, y, bw, bh);
-                        ctx.strokeStyle = color;
-                        ctx.lineWidth = 1.5;
-                        ctx.strokeRect(x + 0.5, y + 0.5, bw - 1, bh - 1);
-
-                        const idxLabel = String(idx + 1).padStart(2, "0");
-                        ctx.font = "bold 11px monospace";
-                        const pillW = Math.max(ctx.measureText(idxLabel).width + 10, 22);
-                        const pillH = 16;
-                        ctx.fillStyle = color;
-                        ctx.fillRect(x, y, pillW, pillH);
-                        ctx.fillStyle = "#000";
-                        ctx.textAlign = "center";
-                        ctx.textBaseline = "middle";
-                        ctx.fillText(idxLabel, x + pillW / 2, y + pillH / 2 + 0.5);
-
-                        const textX = x + 6;
-                        const textY = y + pillH + 6;
-                        const textW = bw - 12;
-                        ctx.textAlign = "left";
-                        ctx.textBaseline = "top";
-                        if (el.type === "text" && el.text) {
-                            ctx.fillStyle = color;
-                            ctx.font = "bold 11px sans-serif";
-                            wrapText(ctx, `"${el.text}"`, textX, textY, textW, 13, 2);
-                            if (el.desc) {
-                                ctx.fillStyle = "rgba(255,255,255,0.75)";
-                                ctx.font = "10px sans-serif";
-                                wrapText(ctx, el.desc, textX, textY + 30, textW, 12, 4);
-                            }
-                        } else if (el.desc) {
-                            ctx.fillStyle = "#fff";
-                            ctx.font = "11px sans-serif";
-                            wrapText(ctx, el.desc, textX, textY, textW, 13, 5);
-                        }
-                    });
-
-                    if (background) {
-                        const bgH = Math.min(40, ch * 0.18);
-                        const bgY = ch - bgH;
-                        ctx.fillStyle = "rgba(0,0,0,0.7)";
-                        ctx.fillRect(0, bgY, cw, bgH);
-                        ctx.fillStyle = "rgba(255,255,255,0.5)";
-                        ctx.font = "italic 9px sans-serif";
-                        ctx.textAlign = "left";
-                        ctx.textBaseline = "top";
-                        wrapText(ctx, "BG: " + background, 6, bgY + 4, cw - 12, 11, 3);
-                    }
-
-                    previewFooter.textContent = drawn === 0
-                        ? "(JSON valide, mais aucun element avec bbox)"
-                        : `${drawn} element(s)`;
-                }
-
-                function schedulePreview() {
-                    clearTimeout(node._friaPreviewTimer);
-                    node._friaPreviewTimer = setTimeout(draw, 50);
-                }
-
-                resultTextarea.addEventListener("input", schedulePreview);
-                const ro = new ResizeObserver(schedulePreview);
-                ro.observe(canvasWrap);
-                setTimeout(draw, 200);
-
-                // Surveiller les changements de width/height
-                let _lastW = -1, _lastH = -1;
-                setInterval(() => {
-                    const { width, height } = readWidthHeight();
-                    if (width !== _lastW || height !== _lastH) {
-                        _lastW = width; _lastH = height;
-                        schedulePreview();
-                    }
-                }, 500);
-
-                // ========================================
-                // onExecuted
+                // onExecuted (Python run completed)
                 // ========================================
                 const origExec = node.onExecuted;
                 node.onExecuted = function (output) {
@@ -500,16 +310,9 @@
                     const arr = output?.prompt;
                     if (Array.isArray(arr) && arr.length > 0) {
                         resultTextarea.value = String(arr[0]);
-                        schedulePreview();
                     }
                 };
 
-                // Init api_config
-                const initApiConfig = () => {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (a) a.value = JSON.stringify({ api_url: getApiUrl(), api_key: getApiKey() });
-                };
-                initApiConfig();
                 return r;
             };
         },
