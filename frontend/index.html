@@ -348,9 +348,7 @@
     .score-bar-fill { background: linear-gradient(90deg, var(--accent), var(--accent-hover)); }
     .scrollbar-thin::-webkit-scrollbar-thumb { background-color: var(--text-secondary); }
     .btn-mode.active { background-color: var(--accent); color: white; border-color: var(--accent); }
-    .modal-overlay { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.2); backdrop-filter: blur(4px); }
-    .dark .modal-overlay { background: rgba(0,0,0,0.6); }
-    .modal-overlay.open { display: flex; }
+    /* (modal-overlay supprime : non utilise, les modales utilisent les classes Tailwind bg-slate-900/40 + backdrop-blur-sm) */
 
     .col-resizing, .col-resizing * { cursor: col-resize !important; user-select: none !important; }
 
@@ -384,7 +382,7 @@
     .bg-slate-800 { background-color: var(--bg-modal) !important; }
     .bg-slate-900 { background-color: var(--bg-body) !important; }
     .bg-slate-950 { background-color: var(--bg-body) !important; }
-    .bg-slate-900\/40 { background-color: var(--bg-header) !important; }
+    .bg-slate-900\/40 { background-color: rgba(0,0,0,0.4) !important; }
 
     /* Surfaces accent (badges, tags) */
     .bg-indigo-100 { background-color: var(--sfw-bg) !important; }
