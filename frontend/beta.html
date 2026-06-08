@@ -785,11 +785,6 @@
                     <option value="qwen">Qwen</option>
                     <option value="liste">Liste</option>
                   </select>
-                  <select id="enhance-format" class="text-xs border border-slate-300 rounded-md px-2 py-1 bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-                    <option value="text">Texte brut</option>
-                    <option value="markdown">Markdown</option>
-                    <option value="json">JSON</option>
-                  </select>
                   <select id="enhance-style" class="text-xs border border-slate-300 rounded-md px-2 py-1 bg-white dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200 min-w-[100px]">
                     <option value="">-- Style --</option>
                   </select>
@@ -2219,7 +2214,6 @@
       var text = document.getElementById('enhance-input').value.trim();
       var presetId = document.getElementById('enhance-preset').value;
       var promptType = document.getElementById('enhance-type').value;
-      var outputFormat = document.getElementById('enhance-format').value;
       var styleId = document.getElementById('enhance-style').value;
       var useEP = document.getElementById('enhance-ep').checked;
       var useRandom = document.getElementById('enhance-random').checked;
@@ -2315,7 +2309,6 @@
             text: text,
             preset_id: presetId ? parseInt(presetId) : null,
             prompt_type: promptType,
-            output_format: outputFormat,
             style_id: styleId ? parseInt(styleId) : null,
             style_text: styleText,
             ep_elements: epItems,
@@ -2352,21 +2345,9 @@
       var div = document.getElementById('enhance-output-rendered');
       var btn = document.getElementById('btn-toggle-view');
       if (div.classList.contains('hidden')) {
-        // Passer en mode rendu
+        // Passer en mode rendu (texte brut, sauts de ligne)
         var raw = ta.value;
-        var format = document.getElementById('enhance-format').value;
-        if (format === 'json') {
-          try {
-            var j = JSON.parse(raw);
-            div.innerHTML = '<pre class="text-xs text-emerald-700 dark:text-emerald-400">' + JSON.stringify(j, null, 2).replace(/</g, '&lt;') + '</pre>';
-          } catch (e) {
-            div.innerHTML = '<span class="text-rose-500">JSON invalide</span>';
-          }
-        } else if (format === 'markdown') {
-          div.innerHTML = raw.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>').replace(/\n/g, '<br>').replace(/`([^`]+)`/g, '<code>$1</code>');
-        } else {
-          div.innerHTML = raw.replace(/\n/g, '<br>');
-        }
+        div.innerHTML = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
         ta.classList.add('hidden');
         div.classList.remove('hidden');
         btn.textContent = 'Brut';
@@ -2385,7 +2366,6 @@
       if (currentUser && currentUser.settings) {
         var s = currentUser.settings;
         if (s.enhanceType) document.getElementById('enhance-type').value = s.enhanceType;
-        if (s.enhanceFormat) document.getElementById('enhance-format').value = s.enhanceFormat;
         if (s.enhanceInput) document.getElementById('enhance-input').value = s.enhanceInput;
         if (s.enhanceEP) document.getElementById('enhance-ep').checked = s.enhanceEP;
         if (s.enhanceRandom) {
@@ -2424,7 +2404,6 @@
       var settings = currentUser.settings || {};
       settings.enhancePresetId = document.getElementById('enhance-preset').value || null;
       settings.enhanceType = document.getElementById('enhance-type').value;
-      settings.enhanceFormat = document.getElementById('enhance-format').value;
       settings.enhanceEP = document.getElementById('enhance-ep').checked;
       settings.enhanceRandom = document.getElementById('enhance-random').checked;
       settings.enhanceRandomCount = document.getElementById('enhance-random-count').value;

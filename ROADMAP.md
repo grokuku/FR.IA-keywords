@@ -259,6 +259,7 @@ Note : les endpoints `GET /api/prompts/examples` et `POST /api/prompts/examples/
 - [x] **Paramètres enhance persistés** : preset, type, format, style sauvegardés côté serveur par utilisateur
 
 ### Phase 4 — Polish & Bonus ⬜ (non commencée)
+- [x] **Simplification des prompts : format de sortie = type de prompt** (juin 2026) — Le dropdown "Format" (text/markdown/json) a été retiré du panneau enhance et de la node ComfyUI Enhance. Le format est désormais déterminé par `prompt_type` (via `_default_format_for_type()` dans `app.py`). L'éditeur de templates garde le choix `output_format` pour surcharger par type.
 - [ ] Checkbox Prompt négatif
 - [ ] Base de prompts négatifs
 - [ ] Instructions spéciales dans le prompt système (backend OK, UI manquante)

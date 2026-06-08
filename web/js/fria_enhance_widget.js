@@ -32,7 +32,7 @@
                     }
                 };
                 // elements a forceInput:True — pas besoin de hideWidget
-                ["base_prompt", "prompt_type", "output_format", "preset_id", "style_id",
+                ["base_prompt", "prompt_type", "preset_id", "style_id",
                  "special_instructions", "_api_config"].forEach(
                     n => hideWidget(node, n)
                 );
@@ -70,7 +70,6 @@
                     };
                     set("base_prompt", basePromptTextarea.value);
                     set("prompt_type", typeSelect.value);
-                    set("output_format", formatSelect.value);
                     set("preset_id", parseInt(presetSelect.value) || 0);
                     set("style_id", parseInt(styleSelect.value) || 0);
                     set("special_instructions", specialTextarea.value);
@@ -189,20 +188,6 @@
                 typeDiv.appendChild(typeSelect);
                 grid.appendChild(typeDiv);
 
-                // Format (bottom-left) — valeurs comme sur le site
-                const fmtDiv = document.createElement("div");
-                const formatSelect = document.createElement("select");
-                Object.assign(formatSelect.style, selectStyle);
-                [["text", "Texte brut"], ["markdown", "Markdown"], ["json", "JSON"]].forEach(([v, l]) => {
-                    const o = document.createElement("option");
-                    o.value = v; o.textContent = l;
-                    formatSelect.appendChild(o);
-                });
-                formatSelect.onchange = syncEnhanceWidget;
-                fmtDiv.appendChild(mkLabel("Format"));
-                fmtDiv.appendChild(formatSelect);
-                grid.appendChild(fmtDiv);
-
                 // Style (bottom-right) — depuis /api/styles
                 const styleDiv = document.createElement("div");
                 const styleRow = document.createElement("div");
@@ -294,7 +279,6 @@
                             return s > 0 ? s : null;
                         })(),
                         prompt_type: typeSelect.value,
-                        output_format: formatSelect.value,
                         preset_id: parseInt(presetSelect.value) || null,
                         style_id: parseInt(styleSelect.value) || null,
                         special_instructions: specialTextarea.value,
@@ -348,8 +332,6 @@
                         if (bp && bp.value) basePromptTextarea.value = bp.value;
                         const t = read("prompt_type");
                         if (t && t.value) typeSelect.value = t.value;
-                        const f = read("output_format");
-                        if (f && f.value) formatSelect.value = f.value;
                         const p = read("preset_id");
                         if (p && p.value > 0 && [...presetSelect.options].some(o => o.value === String(p.value))) {
                             presetSelect.value = String(p.value);

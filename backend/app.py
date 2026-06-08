@@ -58,6 +58,25 @@ def _row_get(row, key, default=None):
         return default
 
 
+# Format de sortie par défaut selon le type de prompt.
+# Le frontend ne demande plus le format : il est determiné par le type.
+# L'editeur de templates peut surcharger en creant un template avec un
+# format different (text/markdown/json) pour un (prompt_type, output_format) donné.
+# Exemple: 'z-image' -> 'json' quand on aura des modeles JSON-only.
+_DEFAULT_FORMAT_BY_TYPE = {
+    'sdxl':  'text',
+    'sd15':  'text',
+    'flux':  'text',
+    'anima': 'text',
+    'qwen':  'text',
+    'liste': 'text',
+    'z-image': 'json',  # exemple : modèle natif JSON
+}
+
+def _default_format_for_type(prompt_type):
+    return _DEFAULT_FORMAT_BY_TYPE.get(prompt_type, 'text')
+
+
 def _get_encryption_key():
     """Recupere ou genere la cle de chiffrement."""
     conn = sqlite3.connect(str(DB_PATH))
@@ -2063,7 +2082,10 @@ def enhance_prompt():
     preset_id = data.get('preset_id')
     text = data.get('text', '').strip()
     prompt_type = data.get('prompt_type', 'sdxl').strip()
-    output_format = data.get('output_format', 'text').strip()
+    # Format de sortie : si non fourni, déduit du type de prompt.
+    # Par défaut tout est en 'text'. L'editeur de templates peut surcharger
+    # par type en creant un template avec un format different.
+    output_format = (data.get('output_format') or '').strip() or _default_format_for_type(prompt_type)
     style_id = data.get('style_id')
     style_text = data.get('style_text', '').strip()
     special_instructions = data.get('special_instructions', '').strip()
