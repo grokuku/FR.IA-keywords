@@ -41,8 +41,8 @@ class FRIAIdeogram4Node:
             }
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("prompt",)
+    RETURN_TYPES = ("STRING", "INT", "INT")
+    RETURN_NAMES = ("prompt", "width", "height")
 
     def build_caption(self, seed=0, width=1024, height=1024,
                       description="", element_1="", element_2="", element_3="", element_4="",
@@ -84,10 +84,10 @@ class FRIAIdeogram4Node:
             r.raise_for_status()
             data = r.json()
             prompt = data.get("output", "")
-            return {"ui": {"prompt": [prompt]}, "result": (prompt,)}
+            return {"ui": {"prompt": [prompt]}, "result": (prompt, width, height)}
         except ImportError:
             msg = "Erreur: module 'requests' manquant. pip install requests"
-            return {"ui": {"prompt": [msg]}, "result": (msg,)}
+            return {"ui": {"prompt": [msg]}, "result": (msg, width, height)}
         except Exception as e:
             msg = str(e)
             if "401" in msg:
@@ -96,4 +96,4 @@ class FRIAIdeogram4Node:
                 msg = "Erreur : rate limit atteint. Attendez un instant."
             else:
                 msg = f"Erreur API : {msg}"
-            return {"ui": {"prompt": [msg]}, "result": (msg,)}
+            return {"ui": {"prompt": [msg]}, "result": (msg, width, height)}

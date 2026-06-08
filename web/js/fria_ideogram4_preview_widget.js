@@ -168,27 +168,27 @@
                     const ctx = canvas.getContext("2d");
                     const { cw, ch } = sizeCanvas(w, h);
 
-                    // Fond
-                    ctx.fillStyle = palette[0] || "#162447";
+                    // Fond du canvas (gris sombre, comme dans le mockup)
+                    ctx.fillStyle = "#2a2a2e";
                     ctx.fillRect(0, 0, cw, ch);
 
-                    // Indication de la "background description" en haut
-                    if (background) {
-                        ctx.fillStyle = "rgba(0,0,0,0.6)";
-                        ctx.fillRect(0, 0, cw, Math.min(50, ch * 0.15));
-                        ctx.fillStyle = "#fff";
-                        ctx.font = "11px sans-serif";
-                        ctx.textAlign = "left";
-                        ctx.textBaseline = "top";
-                        wrapText(ctx, "BG: " + background, 6, 4, cw - 12, 14, 3);
-                    }
+                    // Palette de couleurs vives (style mockup)
+                    const colors = [
+                        "#22d3ee", // cyan
+                        "#84cc16", // lime
+                        "#a855f7", // violet
+                        "#eab308", // jaune
+                        "#f97316", // orange
+                        "#ec4899", // rose
+                        "#06b6d4", // teal
+                    ];
 
                     // Pour chaque element avec bbox, dessiner le rectangle
-                    const colors = ["#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#06b6d4"];
+                    let drawn = 0;
                     elements.forEach((el, idx) => {
                         if (!el.bbox || !Array.isArray(el.bbox) || el.bbox.length !== 4) return;
+                        drawn++;
                         const [yMin, xMin, yMax, xMax] = el.bbox;
-                        // bbox en coords 0-1000 -> ratio
                         const rx = xMin / 1000, ry = yMin / 1000;
                         const rw = (xMax - xMin) / 1000, rh = (yMax - yMin) / 1000;
                         const x = rx * cw, y = ry * ch;
@@ -196,32 +196,81 @@
 
                         const color = colors[idx % colors.length];
 
-                        // Fond semi-transparent
-                        ctx.fillStyle = hexToRgba(color, 0.25);
+                        // Fond très transparent (pour qu'on devine le "fond" derriere)
+                        ctx.fillStyle = hexToRgba(color, 0.08);
                         ctx.fillRect(x, y, bw, bh);
-                        // Bordure
-                        ctx.strokeStyle = color;
-                        ctx.lineWidth = 2;
-                        ctx.strokeRect(x, y, bw, bh);
 
-                        // Label "type" en haut
-                        const label = el.type || "obj";
+                        // Bordure fine
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = 1.5;
+                        ctx.strokeRect(x + 0.5, y + 0.5, bw - 1, bh - 1);
+
+                        // Pill d'index dans le coin haut-gauche
+                        const idxLabel = String(idx + 1).padStart(2, "0");
+                        ctx.font = "bold 11px monospace";
+                        const pillW = Math.max(ctx.measureText(idxLabel).width + 10, 22);
+                        const pillH = 16;
+                        // Fond plein de la couleur
                         ctx.fillStyle = color;
-                        ctx.font = "bold 10px sans-serif";
+                        ctx.fillRect(x, y, pillW, pillH);
+                        // Texte noir sur la pill
+                        ctx.fillStyle = "#000";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText(idxLabel, x + pillW / 2, y + pillH / 2 + 0.5);
+
+                        // Contenu textuel
+                        const textX = x + 6;
+                        const textY = y + pillH + 6;
+                        const textW = bw - 12;
                         ctx.textAlign = "left";
                         ctx.textBaseline = "top";
-                        const labelW = ctx.measureText(label).width + 6;
-                        ctx.fillRect(x, y, labelW, 14);
-                        ctx.fillStyle = "#fff";
-                        ctx.fillText(label, x + 3, y + 1);
 
-                        // Texte desc
-                        if (el.desc) {
+                        if (el.type === "text" && el.text) {
+                            // Type "text" : on affiche le texte a rendre en plus gros
+                            ctx.fillStyle = color;
+                            ctx.font = "bold 11px sans-serif";
+                            wrapText(ctx, `"${el.text}"`, textX, textY, textW, 13, 2);
+                            if (el.desc) {
+                                ctx.fillStyle = "rgba(255,255,255,0.75)";
+                                ctx.font = "10px sans-serif";
+                                wrapText(ctx, el.desc, textX, textY + 30, textW, 12, 4);
+                            }
+                        } else if (el.desc) {
+                            // Type "obj" : juste la description
                             ctx.fillStyle = "#fff";
-                            ctx.font = "10px sans-serif";
-                            wrapText(ctx, el.desc, x + 4, y + 18, bw - 8, 12, 4);
+                            ctx.font = "11px sans-serif";
+                            wrapText(ctx, el.desc, textX, textY, textW, 13, 5);
                         }
                     });
+
+                    // Barre de "background description" en bas
+                    if (background) {
+                        const bgH = Math.min(50, ch * 0.18);
+                        const bgY = ch - bgH;
+                        ctx.fillStyle = "rgba(0,0,0,0.7)";
+                        ctx.fillRect(0, bgY, cw, bgH);
+                        ctx.strokeStyle = "rgba(255,255,255,0.15)";
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(0, bgY);
+                        ctx.lineTo(cw, bgY);
+                        ctx.stroke();
+                        ctx.fillStyle = "rgba(255,255,255,0.5)";
+                        ctx.font = "italic 9px sans-serif";
+                        ctx.textAlign = "left";
+                        ctx.textBaseline = "top";
+                        wrapText(ctx, "BG: " + background, 6, bgY + 4, cw - 12, 11, 3);
+                    }
+
+                    // Si aucun element dessine, message
+                    if (drawn === 0) {
+                        ctx.fillStyle = "rgba(255,255,255,0.4)";
+                        ctx.font = "12px sans-serif";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText("(JSON valide, mais aucun element avec bbox)", cw / 2, ch / 2);
+                    }
                 }
 
                 // Helper : texte wrap sur N lignes max

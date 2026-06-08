@@ -73,10 +73,10 @@
                     set("width", parseInt(widthInput.value) || 1024);
                     set("height", parseInt(heightInput.value) || 1024);
                     set("description", descTextarea.value);
-                    set("element_1", elem1.value);
-                    set("element_2", elem2.value);
-                    set("element_3", elem3.value);
-                    set("element_4", elem4.value);
+                    set("element_1", elems[0].value);
+                    set("element_2", elems[1].value);
+                    set("element_3", elems[2].value);
+                    set("element_4", elems[3].value);
                     set("preset_id", parseInt(presetSelect.value) || 0);
                     set("style_id", parseInt(styleSelect.value) || 0);
                     const a = node.widgets?.find(x => x.name === "_api_config");
@@ -215,7 +215,7 @@
                     "ex: une machine a espresso en laiton",
                     "ex: un comptoir en bois",
                 ];
-                const elems = [elem1, elem2, elem3, elem4] = [];
+                const elems = [];
                 for (let i = 0; i < 4; i++) {
                     container.appendChild(mkLabel(elemLabels[i]));
                     const ta = document.createElement("textarea");
