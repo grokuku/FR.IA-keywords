@@ -288,10 +288,26 @@
                 }
 
                 function readWidthHeight() {
-                    const get = (name) => node.widgets?.find(w => w.name === name);
+                    // Priorite 1 : valeur resolue par les connexions (getInputData)
+                    // Priorite 2 : valeur du widget local
+                    const getWidgetValue = (name) => {
+                        const w = node.widgets?.find(x => x.name === name);
+                        if (!w) return null;
+                        // Tenter d'abord via getInputData (prend en compte les fils)
+                        if (typeof node.getInputData === "function" && node.inputs) {
+                            const input = node.inputs[name] || node.inputs[w.name];
+                            if (input) {
+                                try {
+                                    const v = node.getInputData(input.slot);
+                                    if (v !== undefined && v !== null) return v;
+                                } catch (e) {}
+                            }
+                        }
+                        return w.value;
+                    };
                     return {
-                        width: parseInt(get("width")?.value) || 1024,
-                        height: parseInt(get("height")?.value) || 1024,
+                        width: parseInt(getWidgetValue("width")) || 1024,
+                        height: parseInt(getWidgetValue("height")) || 1024,
                     };
                 }
 
