@@ -461,6 +461,20 @@
                 ro.observe(canvasWrap);
                 setTimeout(draw, 200);
 
+                // Surveiller les changements de width/height (changement de
+                // connexion sur les forceInput, ou valeur entree manuellement).
+                // ComfyUI n'expose pas de hook "value changed" simple, donc on
+                // poll periodiquement.
+                let _lastW = -1, _lastH = -1;
+                setInterval(() => {
+                    const { width, height } = readWidthHeight();
+                    if (width !== _lastW || height !== _lastH) {
+                        _lastW = width;
+                        _lastH = height;
+                        schedulePreview();
+                    }
+                }, 500);
+
                 // ========================================
                 // Restauration workflow
                 // ========================================

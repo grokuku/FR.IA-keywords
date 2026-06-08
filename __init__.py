@@ -46,10 +46,6 @@ _ideogram4_mod = _load_module(
     os.path.join(_nodes_dir, "ideogram4_node.py"),
     "FRIAIdeogram4Node"
 )
-_ideogram4_preview_mod = _load_module(
-    os.path.join(_nodes_dir, "ideogram4_preview_node.py"),
-    "FRIAIdeogram4PreviewNode"
-)
 _diag_mod = _load_module(
     os.path.join(_nodes_dir, "diagnostic_node.py"),
     "FRIADiagnosticNode"
@@ -79,11 +75,6 @@ if _ideogram4_mod and hasattr(_ideogram4_mod, "FRIAIdeogram4Node"):
     cls = _ideogram4_mod.FRIAIdeogram4Node
     NODE_CLASS_MAPPINGS["FRIAIdeogram4Node"] = cls
     NODE_DISPLAY_NAME_MAPPINGS["FRIAIdeogram4Node"] = "FR.IA Ideogram 4 Builder"
-
-if _ideogram4_preview_mod and hasattr(_ideogram4_preview_mod, "FRIAIdeogram4PreviewNode"):
-    cls = _ideogram4_preview_mod.FRIAIdeogram4PreviewNode
-    NODE_CLASS_MAPPINGS["FRIAIdeogram4PreviewNode"] = cls
-    NODE_DISPLAY_NAME_MAPPINGS["FRIAIdeogram4PreviewNode"] = "FR.IA Ideogram 4 Preview"
 
 if _diag_mod and hasattr(_diag_mod, "FRIADiagnosticNode"):
     cls = _diag_mod.FRIADiagnosticNode
