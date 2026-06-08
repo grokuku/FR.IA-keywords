@@ -5,6 +5,7 @@ On importe les nodes depuis le sous-dossier FRIA_ComfyUI/.
 """
 import importlib.util
 import os
+import sys
 
 # Acces au serveur HTTP de ComfyUI pour enregistrer des routes
 try:
@@ -14,6 +15,12 @@ except Exception:
     _routes = None
 
 _base = os.path.dirname(os.path.abspath(__file__))
+
+# Ajouter _base au sys.path pour permettre `from FRIA_ComfyUI import X`
+# (le repo est installe dans custom_nodes/<repo>/ donc _base est
+# custom_nodes/FRIA_Tools/ et FRIA_ComfyUI/ est a cote).
+if _base not in sys.path:
+    sys.path.insert(0, _base)
 
 def _load_module(filepath, name):
     """Charge un fichier Python comme module par son chemin absolu."""
@@ -46,6 +53,12 @@ _ideogram4_preview_mod = _load_module(
 _diag_mod = _load_module(
     os.path.join(_nodes_dir, "diagnostic_node.py"),
     "FRIADiagnosticNode"
+)
+
+# Charger le module update_manager (utilise par les routes HTTP ci-dessous)
+_update_manager_mod = _load_module(
+    os.path.join(_base, "FRIA_ComfyUI", "update_manager.py"),
+    "FRIAUpdateManager"
 )
 
 NODE_CLASS_MAPPINGS = {}
@@ -82,19 +95,41 @@ if _diag_mod and hasattr(_diag_mod, "FRIADiagnosticNode"):
 # mettre a jour le repo Git local. Elles n'interagissent PAS avec le
 # backend distant — tout reste sur la machine ComfyUI.
 
-if _routes is not None:
+if _routes is not None and _update_manager_mod is not None:
     from aiohttp import web as _aio_web
 
     @_routes.post("/fr_ia/update")
     async def _fr_ia_update_route(request):
-        from FRIA_ComfyUI import update_manager
-        result = update_manager.update_repo()
-        return _aio_web.json_response(result)
+        try:
+            result = _update_manager_mod.update_repo()
+            return _aio_web.json_response(result)
+        except Exception as e:
+            import traceback
+            return _aio_web.json_response({
+                "status": "error",
+                "message": f"Exception: {e}",
+                "log": traceback.format_exc(),
+                "updated": False,
+            }, status=500)
 
     @_routes.post("/fr_ia/restart")
     async def _fr_ia_restart_route(request):
-        from FRIA_ComfyUI import update_manager
-        result = update_manager.restart_server()
-        return _aio_web.json_response(result)
+        try:
+            result = _update_manager_mod.restart_server()
+            return _aio_web.json_response(result)
+        except Exception as e:
+            import traceback
+            return _aio_web.json_response({
+                "status": "error",
+                "message": f"Exception: {e}",
+                "log": traceback.format_exc(),
+            }, status=500)
+
+    print("[FR.IA] Update routes registered: POST /fr_ia/update, /fr_ia/restart")
+else:
+    # Si les routes ne sont pas enregistrees, on ne fait rien de plus
+    # (l'item "Update" du menu ne fonctionnera pas, mais l'extension
+    # reste chargee pour les nodes)
+    pass
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
