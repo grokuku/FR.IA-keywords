@@ -317,10 +317,10 @@ def _migrate_templates_to_english():
         existing = cur.execute("SELECT COUNT(*) FROM prompt_templates WHERE is_default = 1").fetchone()[0]
         if existing > 0:
             tmpl_version = cur.execute("SELECT value FROM app_settings WHERE key = 'templates_version'").fetchone()
-            if not tmpl_version or tmpl_version[0] < '5':
+            if not tmpl_version or tmpl_version[0] < '6':
                 cur.execute("DELETE FROM prompt_templates WHERE is_default = 1")
                 _insert_default_templates(mconn)
-                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '5')")
+                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '6')")
                 mconn.commit()
         mconn.close()
     except Exception as e:
@@ -536,6 +536,36 @@ Before assigning bboxes, take a moment to mentally PICTURE the final image:
 4. The "background" is everything else — it should NOT overlap with element bboxes.
 5. The user gave you the elements in some order: treat the FIRST as the main subject (largest, centered), and the rest as supporting elements around it.
 6. Think of the image as a stage: foreground actors (large, lower) vs background scenery (small, upper).
+
+### Action verbs determine vertical position (CRITICAL)
+The verb in each element's `desc` tells you where the subject physically is. Apply this rule strictly:
+
+**Ground-level actions (bbox bottom edge near y=700-1000):**
+- "standing", "walking", "running", "sitting", "kneeling", "crouching", "crawling"
+- "lying", "lying down", "on the ground", "at their feet"
+- "diving", "plunging", "diving for the ball", "on the floor", "fallen"
+- "playing in the sand", "sitting on the beach"
+
+**Mid-air actions (bbox can span the full height, centered around y=200-700):**
+- "jumping", "leaping", "in the air", "flying", "soaring"
+- "spiking" (volleyball), "blocking" (jumping up to block), "dunking" (basketball)
+- "swinging on a rope", "hanging from"
+
+**Above scene (bbox near y=0-300):**
+- "flying overhead", "in the sky", "in the clouds", "above the scene"
+- "perched high", "sitting on a branch high up"
+
+### Examples (apply the verb rules):
+- "A woman diving to receive the ball" → bbox at BOTTOM (y=400-950), WIDE (she's horizontal/spread out on the sand)
+- "A woman jumping to block" → bbox centered (y=100-800), TALL (vertical leap)
+- "A woman spiking the ball" → bbox centered (y=50-700), TALL (arm raised, mid-air)
+- "A woman standing on the beach" → bbox centered (y=150-1000), TALL (full body)
+- "A man running across the field" → bbox centered (y=200-950), at appropriate lateral position
+- "A dog sitting at their feet" → bbox at BOTTOM (y=750-1000), small
+- "A bird flying in the sky" → bbox at TOP (y=0-300), small
+- "Clouds above the beach" → bbox at TOP (y=0-300), wide
+
+**CHECK YOUR WORK**: for every element, ask "if I closed my eyes and someone described this scene to me, where would this element be on the photograph?" If your bbox says one thing and your mental image says another, FIX THE BBOX.
 
 ### Common mistakes to avoid
 - DO NOT place "looking up at X" ABOVE X (gazer must be lower)
@@ -2557,7 +2587,121 @@ This style is IMPERATIVE. Keep it exactly as written, do NOT rephrase or summari
     except Exception:
         pass  # non-bloquant
 
+    # ── Auto-critique : passes de validation (Ideogram 4 uniquement) ────
+    # Pour les autres types, pas de bbox/structure a valider, on garde 0.
+    validation_passes = int(data.get('validation_passes', 1 if prompt_type == 'ideogram4' else 0))
+    validation_passes = max(0, min(validation_passes, 3))  # borne 0..3
+
+    for pass_idx in range(validation_passes):
+        try:
+            corrected = _validate_caption_pass(
+                output, merged_text, style_text, width, height,
+                api_key, base_url, model, pass_idx
+            )
+            if corrected:
+                output = corrected
+        except Exception:
+            # En cas d'erreur de validation, on garde la sortie precedente
+            pass
+
     return jsonify({'output': output, 'negative_prompt': negative_prompt, 'model_used': model})
+
+
+def _validate_caption_pass(current_output, original_input, style_text, width, height,
+                            api_key, base_url, model, pass_idx):
+    """
+    Passe d'auto-critique : le LLM relit le JSON caption et corrige les
+    problemes de coherence (bboxes physiquement impossibles, elements
+    places au mauvais endroit, etc.).
+
+    Retourne le JSON corrige, ou None si pas de correction necessaire.
+    """
+    import requests as _req
+
+    # Tenter de parser le JSON
+    try:
+        s = current_output.strip()
+        import re as _re
+        m = _re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", s)
+        if m:
+            s = m.group(1)
+        json.loads(s)
+        parsed_ok = True
+    except Exception:
+        parsed_ok = False
+
+    if not parsed_ok:
+        # JSON invalide : demander au LLM de regenerer
+        critique_prompt = f"""The previous Ideogram 4 caption is NOT valid JSON. Regenerate it as a valid JSON object matching the schema. Output ONLY the JSON, no commentary."""
+    else:
+        # JSON valide : demander de verifier la coherence
+        if pass_idx == 0:
+            focus = """Focus on these issues:
+1. BBOXES: for each element, ask "if I closed my eyes and someone described this scene to me, where would this element physically be?" Fix any element placed in a physically impossible position (e.g. "looking up at X" placed ABOVE X, "on the ground" placed at the top, "background" larger than "foreground").
+2. ACTION VERBS: a person "diving" or "lying" must be at the BOTTOM. A person "jumping" or "leaping" must be MID-IMAGE. A person "flying in the sky" must be at the TOP.
+3. RELATIVE SIZE: the main subject (first listed) must have the largest bbox. Background elements must be smaller than foreground.
+4. NO OVERLAP (unless elements are clearly together, e.g. "holding hands", "embracing").
+5. ASPECT RATIO: if width={width} and height={height}, bboxes must match this aspect ratio.
+6. EVERY element must have a non-null bbox. NEVER remove an element."""
+        else:
+            focus = """Final pass: double-check the bboxes are physically coherent and respect the scene description. Make MINIMAL changes — only fix clear errors. Output the corrected JSON."""
+
+        critique_prompt = f"""You are an expert image composition critic. Review the following Ideogram 4 caption JSON for SPATIAL COHERENCE.
+
+ORIGINAL USER INPUT:
+{original_input}
+
+{f"SYTLE (must be preserved): {style_text}" if style_text else ""}
+
+CURRENT JSON CAPTION:
+{current_output}
+
+{focus}
+
+If you find problems, output the CORRECTED JSON with the issues fixed. If the JSON is already correct, output it unchanged.
+
+Output ONLY the JSON object. No code fences, no commentary."""
+
+    # Appel LLM pour la critique/correction
+    headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'} if api_key else {'Content-Type': 'application/json'}
+    payload = {
+        'model': model,
+        'messages': [
+            {'role': 'system', 'content': 'You are a precise JSON Ideogram 4 caption critic. You output ONLY corrected JSON.'},
+            {'role': 'user', 'content': critique_prompt},
+        ],
+        'temperature': 0.1,  # tres bas pour rester deterministe
+        'max_tokens': 2000,
+        'frequency_penalty': 0.0,
+        'repeat_penalty': 1.0,
+    }
+    try:
+        r = _req.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=60)
+        r.raise_for_status()
+        result = r.json()
+        new_output = result['choices'][0]['message']['content'].strip()
+    except Exception:
+        return None
+
+    # Nettoyer les fences
+    if new_output.startswith('```'):
+        lines = new_output.split('\n')
+        if lines[0].startswith('```'):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == '```':
+            lines = lines[:-1]
+        new_output = '\n'.join(lines).strip()
+
+    # Verifier que c'est du JSON valide
+    try:
+        s2 = new_output.strip()
+        m2 = _re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", s2)
+        if m2:
+            s2 = m2.group(1)
+        json.loads(s2)
+        return new_output
+    except Exception:
+        return None
 
 
 @app.route('/api/generate', methods=['POST'])
