@@ -80,7 +80,7 @@ class FRIAIdeogram4Node:
         try:
             import requests
             r = requests.post(f"{api_url}/enhance",
-                              json=payload, headers=headers, timeout=60)
+                              json=payload, headers=headers, timeout=180)
             r.raise_for_status()
             data = r.json()
             prompt = data.get("output", "")

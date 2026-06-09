@@ -2584,7 +2584,7 @@ This style is IMPERATIVE. Keep it exactly as written, do NOT rephrase or summari
             'temperature': payload['temperature'],
             'max_tokens': payload['max_tokens'],
         })
-        r = requests.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=60)
+        r = requests.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=180)
         r.raise_for_status()
         result = r.json()
         output = result['choices'][0]['message']['content'].strip()
@@ -2596,7 +2596,7 @@ This style is IMPERATIVE. Keep it exactly as written, do NOT rephrase or summari
                 logging.warning(f"[enhance] LLM output vide, retry {retry+1}/3")
             else:
                 logging.warning(f"[enhance] LLM output trop court (len={len(output)}), retry {retry+1}/3")
-            r = requests.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=60)
+            r = requests.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=180)
             r.raise_for_status()
             result = r.json()
             output = result['choices'][0]['message']['content'].strip()
@@ -2760,7 +2760,7 @@ Output ONLY the corrected JSON. No code fences."""
         'model': model,
     })
     try:
-        r = _req.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=60)
+        r = _req.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=180)
         r.raise_for_status()
         result = r.json()
         new_output = result['choices'][0]['message']['content'].strip()
