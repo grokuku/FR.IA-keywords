@@ -45,6 +45,8 @@ class FRIAIdeogram4Node:
                       description="", element_1="", element_2="",
                       element_3="", element_4="",
                       _api_config="{}"):
+        # Initialiser data au cas ou la requete echoue (evite UnboundLocalError)
+        data = {}
         try:
             api_cfg = json.loads(_api_config) if _api_config else {}
         except json.JSONDecodeError:

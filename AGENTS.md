@@ -57,3 +57,49 @@ FR.IA-keywords/
 - Sauf demande explicite de l'utilisateur en cas de besoin (rare).
 - Commits atomiques : un changement logique par commit.
 - Suivre le format existant des messages de commit.
+
+## Ideogram 4 — Architecture LLM
+
+### Format Bbox : pixels → conversion 0-1000
+- Le LLM travaille en **coordonnées pixels réelles** (ex: 1792x1008)
+- L'API Ideogram 4 exige du **0-1000 normalisé** ([y_min, x_min, y_max, x_max])
+- `convert_bboxes_to_normalized()` convertit après la sortie LLM, avant le return API
+- **Détection automatique** : si max(bbox) ≤ 1000 → déjà normalisé, on ne touche pas
+- **⚠️ PROBLÈME CONNU** : gemma3:12b ne respecte pas toujours les pixels. Si le LLM mélange (certaines bbox en 0-1000, d'autres en pixels), la conversion est partielle/incohérente. Exemple réel : élément 4 bbox [1100,600,1700,950] (pixels, converti) mais éléments 1-3 max≤1000 (non convertis car détectés comme déjà normalisés). Résultat : mix incohérent dans la sortie finale.
+
+### Passes LLM
+1. **Passe 1 (Génération)** : system_prompt + merged_text → JSON caption avec bboxes
+2. **Passe 2 (Validation spatiale)** : corrige les bboxes, temperature 0.1
+3. **Conversion** : pixels → 0-1000 pour Ideogram 4
+4. Seulement `ideogram4` a une passe de validation (validation_passes=1)
+
+### Debug output
+- L'API `/api/enhance` retourne `debug_md` : markdown avec toutes les passes
+- Node ComfyUI a une 5ème sortie `debug` (STRING)
+- JS a un bouton "🔍 Voir debug LLM" ouvrant une fenêtre avec le markdown
+
+### Règles Bbox
+- Coords 0-1000 = 0-100% de chaque dimension (format Ideogram natif)
+- Personne debout : y_span > x_span (haut/étroit)
+- Personne allongée/plongeante : x_span > y_span (large/bas)
+- **La forme du bbox dépend du SUJET, pas du ratio de l'image**
+- Le LAYOUT (position) dépend du ratio : paysage = étaler horizontalement, portrait = empiler
+- **Mais en coords pixels** : une sphère = bbox carré (x_span ≈ y_span), le LLM n'a pas à compenser l'aspect ratio
+
+### Node ComfyUI (FRIAIdeogram4Node)
+- RETURN_TYPES : (STRING, INT, INT, IMAGE, STRING) = (prompt, width, height, preview, debug)
+- Widgets natifs : seed, width, height, description, element_1..4, _api_config (1 seul hidden)
+- **PAS de forceInput** sur width/height, **PAS de multiline** sur element_1..4
+- DOM widget : preset/style selects, generate button, result textarea, debug button
+- `_api_config` = JSON {api_url, api_key, preset_id, style_id}
+- `loadedGraphNode` hook pour restore après ComfyUI workflow load
+
+### Templates version
+- v8 → v9 : bbox format changé de 0-1000 vers pixels, ajout routine conversion
+- Migration auto si DB version < templates_version
+
+### Decisions clés
+- Simplicité > complexité : peu de widgets natifs = sérialisation stable
+- Texte custom ComfyUI = raw (verbatim, pas de recherche sémantique)
+- Update mechanism : git fetch + reset --hard + os.execv restart
+- Frontend index.html et beta.html doivent rester synchronisés
