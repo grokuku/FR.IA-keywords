@@ -3,12 +3,14 @@ import sqlite3
 import io
 import json
 import random
+import time
+from threading import Thread
 from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, request, jsonify, send_file, send_from_directory, session, redirect, render_template_string, g
+from flask import Flask, request, jsonify, send_file, send_from_directory, session, redirect, render_template_string, g, Response
 from flask_cors import CORS
 
 from parser import parse_markdown
@@ -320,7 +322,7 @@ def _migrate_templates_to_english():
             if not tmpl_version or tmpl_version[0] < '9':
                 cur.execute("DELETE FROM prompt_templates WHERE is_default = 1")
                 _insert_default_templates(mconn)
-                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '9')")
+                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '10')")
                 mconn.commit()
         mconn.close()
     except Exception as e:
@@ -447,7 +449,19 @@ Use EITHER "photo" OR "art_style", never both.
 In style_description: photo path = aesthetics, lighting, photo, medium, color_palette. Non-photo = aesthetics, lighting, medium, art_style, color_palette.
 Required: aesthetics, lighting, medium. color_palette is optional.
 
-doc_bboxes_rule (IMPORTANT): bbox format: [y_min, x_min, y_max, x_max] in PIXEL COORDINATES matching the IMAGE DIMENSIONS. Origin top-left. A bbox SURROUNDS the subject tightly. For a standing person: y_span > x_span (tall narrow). For a lying/diving person: x_span > y_span (wide short). NEVER make a standing person's bbox wider than it is tall. EVERY element MUST have a bbox. Elements MUST NOT overlap (unless physically together like holding hands). Main subject = largest bbox, centered.
+doc_bboxes_rule (IMPORTANT): bbox format: [y_min, x_min, y_max, x_max] in PIXEL COORDINATES matching the IMAGE DIMENSIONS. Origin top-left. A bbox SURROUNDS the subject tightly. For a standing person: y_span > x_span (tall narrow). For a lying/diving person: x_span > y_span (wide short). NEVER make a standing person's bbox wider than it is tall.
+
+USER-PROVIDED elements (from "ELEMENTS TO PLACE IN THE SCENE") MUST each appear in the output with a bbox, MUST be present in the final JSON. Main user-provided subject = largest bbox, centered.
+
+Bboxes CAN overlap when it makes sense for the scene: a foreground element naturally has a bbox that partially covers a background element (e.g., a person standing in front of a wall, a tree in front of a mountain, a ball partially hidden behind a chair). This is NORMAL and ENCOURAGED when it reflects the actual depth of the scene.
+
+You MAY add 1-5 ADDITIONAL bboxes for background/decorative/environmental elements that improve the rendering precision and the mise en page. Examples: architecture (wall, door, window), furniture (table, chair, shelf), nature (tree, mountain, cloud), atmosphere (light beam, fog, glow), small props (lamp, cup, plant, book). These extra elements:
+- Can be of any type ("obj" for objects, "text" for rendered text)
+- Can have bboxes that overlap with user-provided elements (foreground/background relationship)
+- Can be small bboxes for fine details or large bboxes for environment zones
+- Should describe what makes the scene more realistic and grounded
+
+Adding context bboxes is ENCOURAGED when it helps Ideogram 4 understand the full scene (where the subject sits, what surrounds them, the light direction, etc.).
 
 color_palette: array of UPPERCASE #RRGGBB strings. Up to 16 in style, up to 5 per element.
 Element type: "obj" for subjects/objects, "text" for literal text rendered in image.
@@ -465,6 +479,7 @@ background is REQUIRED in compositional_deconstruction.
 - lighting: be specific (golden hour rim light, low-key deep shadows)
 - photo: include camera details
 - art_style: describe the look
+- context bboxes: add 1-5 small/large bboxes for environment (wall, ground, sky, furniture, light source) to help Ideogram 4 anchor the scene realistically
 
 ## Example (barista scene, 3 elements, 1024x1024 image, bboxes in pixel coords)
 Input: A medium-shot photograph of a barista pouring latte art in a cozy cafe. Elements: 1. A young barista with curly hair. 2. A porcelain cup with latte art. 3. An espresso machine. IMAGE DIMENSIONS: 1024x1024.
@@ -2280,11 +2295,51 @@ def _build_debug_markdown(sections, conversion_debug, width, height):
 
 @app.route('/api/enhance', methods=['POST'])
 def enhance_prompt():
+    """
+    Endpoint streaming pour /api/enhance.
+    Envoie un keepalive JSON toutes les 5s pendant l'appel LLM
+    pour eviter que le client (ComfyUI) timeout sur cold start Ollama (~66s).
+    Format: ndjson (1 ligne JSON par chunk)
+    """
     guard = _login_required()
     if guard: return guard
     user_id = _get_current_user_id()
     data = request.get_json() or {}
 
+    # Resultat partage entre thread et generator
+    result_box = {'done': False, 'value': None, 'error': None}
+
+    def worker():
+        try:
+            result_box['value'] = _do_enhance(user_id, data)
+        except Exception as e:
+            import traceback
+            result_box['error'] = f'{e}\n{traceback.format_exc()}'
+        finally:
+            result_box['done'] = True
+
+    thread = Thread(target=worker, daemon=True)
+    thread.start()
+
+    def generate():
+        # Premier chunk immediat pour confirmer la connexion
+        yield json.dumps({'status': 'pending', 'message': 'starting'}) + '\n'
+        # Keepalive toutes les 5s pendant que le thread bosse
+        while not result_box['done']:
+            time.sleep(5)
+            if not result_box['done']:
+                yield json.dumps({'status': 'pending', 'message': 'waiting for LLM'}) + '\n'
+        # Resultat
+        if result_box['error']:
+            yield json.dumps({'status': 'error', 'error': result_box['error']}) + '\n'
+        else:
+            yield json.dumps({'status': 'done', **result_box['value']}) + '\n'
+
+    return Response(generate(), mimetype='application/x-ndjson')
+
+
+def _do_enhance(user_id, data):
+    """Logique metier de /api/enhance. Retourne un dict {output, negative_prompt, model_used, debug_md}."""
     # Debug : collecter les etapes pour le markdown de debug
     debug_sections = []
 
@@ -2667,7 +2722,7 @@ This style is IMPERATIVE. Keep it exactly as written, do NOT rephrase or summari
     if prompt_type == 'ideogram4' and debug_sections:
         debug_md = _build_debug_markdown(debug_sections, conversion_debug, width, height)
 
-    return jsonify({'output': output, 'negative_prompt': negative_prompt, 'model_used': model, 'debug_md': debug_md})
+    return {'output': output, 'negative_prompt': negative_prompt, 'model_used': model, 'debug_md': debug_md}
 
 
 def _validate_caption_pass(current_output, original_input, style_text, width, height,

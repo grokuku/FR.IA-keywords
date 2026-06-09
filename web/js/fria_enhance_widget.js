@@ -284,8 +284,30 @@
                         special_instructions: specialTextarea.value,
                     };
                     try {
-                        const data = await apiPost("enhance", payload);
-                        const prompt = data.output || "";
+                        // Endpoint retourne du ndjson (streaming keepalive)
+                        const resp = await fetch(`${getApiUrl()}/enhance`, {
+                            method: "POST", headers: apiHeaders(), body: JSON.stringify(payload),
+                        });
+                        if (!resp.ok) {
+                            const t = await resp.text().catch(() => "");
+                            throw new Error(`HTTP ${resp.status}: ${t.substring(0, 200)}`);
+                        }
+                        const text = await resp.text();
+                        let prompt = "";
+                        for (const line of text.split("\n")) {
+                            if (!line.trim()) continue;
+                            try {
+                                const chunk = JSON.parse(line);
+                                if (chunk.status === "done") {
+                                    prompt = chunk.output || "";
+                                } else if (chunk.status === "error") {
+                                    throw new Error(chunk.error || "Erreur inconnue");
+                                }
+                            } catch (e) {
+                                if (e instanceof SyntaxError) continue;
+                                throw e;
+                            }
+                        }
                         if (node._resultArea) node._resultArea.value = prompt;
                         syncEnhanceWidget();
                     } catch (err) {

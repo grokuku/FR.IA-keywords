@@ -94,12 +94,29 @@ class FRIAEnhanceNode:
 
         try:
             import requests
+            # Streaming ndjson : on lit les chunks jusqu'au status='done'
             r = requests.post(f"{api_url}/enhance",
-                              json=payload, headers=headers, timeout=60)
+                              json=payload, headers=headers, stream=True, timeout=(10, 180))
             r.raise_for_status()
-            data = r.json()
-            prompt = data.get("output", "")
-            neg_prompt = data.get("negative_prompt", "")
+            prompt = ""
+            neg_prompt = ""
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line.decode('utf-8'))
+                except Exception:
+                    continue
+                status = chunk.get("status", "")
+                if status == "done":
+                    prompt = chunk.get("output", "")
+                    neg_prompt = chunk.get("negative_prompt", "")
+                    break
+                elif status == "error":
+                    return {
+                        "ui": {"prompt": [f"Erreur: {chunk.get('error', '')[:200]}"], "negative_prompt": [""]},
+                        "result": (f"Erreur: {chunk.get('error', '')[:200]}", "")
+                    }
             return {
                 "ui": {"prompt": [prompt], "negative_prompt": [neg_prompt]},
                 "result": (prompt, neg_prompt)

@@ -282,12 +282,33 @@
 
                     resultTextarea.value = "Generation en cours...";
                     try {
-                        const data = await apiPost("enhance", payload);
-                        resultTextarea.value = data.output || "";
-                        // Stocker le debug_md pour le bouton debug
-                        if (data.debug_md) {
-                            node._lastDebugMd = data.debug_md;
+                        // L'endpoint retourne du ndjson (streaming keepalive).
+                        // On lit les chunks et on garde le dernier status='done'.
+                        const resp = await fetch(`${getApiUrl()}/enhance`, {
+                            method: "POST", headers: apiHeaders(), body: JSON.stringify(payload),
+                        });
+                        if (!resp.ok) {
+                            const t = await resp.text().catch(() => "");
+                            throw new Error(`HTTP ${resp.status}: ${t.substring(0, 200)}`);
                         }
+                        const text = await resp.text();
+                        let output = "";
+                        for (const line of text.split("\n")) {
+                            if (!line.trim()) continue;
+                            try {
+                                const chunk = JSON.parse(line);
+                                if (chunk.status === "done") {
+                                    output = chunk.output || "";
+                                    if (chunk.debug_md) node._lastDebugMd = chunk.debug_md;
+                                } else if (chunk.status === "error") {
+                                    throw new Error(chunk.error || "Erreur inconnue");
+                                }
+                            } catch (e) {
+                                if (e instanceof SyntaxError) continue;
+                                throw e;
+                            }
+                        }
+                        resultTextarea.value = output;
                         saveApiConfig();
                     } catch (err) {
                         resultTextarea.value = "Erreur: " + err.message;

@@ -79,11 +79,29 @@ class FRIAIdeogram4Node:
 
         try:
             import requests
+            # Streaming keepalive : on lit les chunks jusqu'au status='done'
+            # Le keepalive JSON toutes les 5s empeche le timeout sur cold start LLM
             r = requests.post(f"{api_url}/enhance",
-                              json=payload, headers=headers, timeout=180)
+                              json=payload, headers=headers, stream=True, timeout=(10, 180))
             r.raise_for_status()
-            data = r.json()
-            prompt = data.get("output", "")
+            prompt = ""
+            debug_md = ""
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line.decode('utf-8'))
+                except Exception:
+                    continue
+                status = chunk.get("status", "")
+                if status == "done":
+                    prompt = chunk.get("output", "")
+                    debug_md = chunk.get("debug_md", "")
+                    break
+                elif status == "error":
+                    prompt = f"Erreur API : {chunk.get('error', 'inconnue')[:200]}"
+                    break
+                # status == "pending" : on continue, le keepalive reset le timeout read
         except ImportError:
             prompt = "Erreur: module 'requests' manquant. pip install requests"
         except Exception as e:
@@ -97,8 +115,8 @@ class FRIAIdeogram4Node:
 
         preview_tensor = _render_preview(prompt, width, height)
 
-        # Recuperer le debug_md depuis la reponse API
-        debug_md = data.get('debug_md', '') if isinstance(data, dict) else ''
+        # debug_md a deja ete lu dans la boucle streaming ci-dessus
+        # (initialise a '' avant la boucle, mis a jour quand status='done')
 
         return {
             "ui": {"prompt": [prompt]},

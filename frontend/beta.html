@@ -2303,7 +2303,7 @@
           var llmData = await llmRes.json();
           data = {output: llmData.choices[0].message.content.trim()};
         } else {
-          // Appel via backend
+          // Appel via backend (streaming ndjson : keepalive + result final)
           var body = {
             text: text,
             preset_id: presetId ? parseInt(presetId) : null,
@@ -2319,7 +2319,24 @@
             body: JSON.stringify(body)
           });
           if (!res.ok) throw await res.json();
-          data = await res.json();
+          // Lire les chunks ndjson et garder le dernier status='done'
+          var text2 = await res.text();
+          data = {output: ''};
+          for (var i = 0; i < text2.split('\n').length; i++) {
+            var line = text2.split('\n')[i];
+            if (!line.trim()) continue;
+            try {
+              var chunk = JSON.parse(line);
+              if (chunk.status === 'done') {
+                data = chunk;
+              } else if (chunk.status === 'error') {
+                throw {error: chunk.error || 'Erreur LLM'};
+              }
+            } catch (e) {
+              if (e && e.error) throw e;
+              // sinon ignorer la ligne (parse error)
+            }
+          }
         }
         document.getElementById('enhance-output').value = data.output;
         document.getElementById('btn-copy-enhance').classList.remove('hidden');
