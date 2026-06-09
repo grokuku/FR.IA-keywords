@@ -179,12 +179,20 @@
                 container.appendChild(previewNote);
 
                 // ---- Integration DOM Widget ----
+                // IMPORTANT : getValue doit retourner undefined pour que
+                // ComfyUI ne serialize PAS ce widget dans widgets_values[].
+                // Si on retourne "" ou null, ComfyUI ajoute une entree vide
+                // dans le tableau, ce qui DECALE toutes les autres valeurs
+                // au refresh (le texte "un chien" de element_1 se retrouve
+                // alors dans control_after_generate, etc.).
                 const domWidget = node.addDOMWidget("ideogram4_ui", "custom", container, {
-                    getValue: () => "",
+                    getValue: () => undefined,
                     setValue: (v) => {},
                     getMinHeight: () => 320,
                     getMaxHeight: () => 800,
                 });
+                // Marquer explicitement comme non-serialisable
+                domWidget.serialize = false;
 
                 node._resultArea = resultTextarea;
                 node._domWidget = domWidget;
