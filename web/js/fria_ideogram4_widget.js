@@ -1,18 +1,16 @@
 /**
  * FR.IA Ideogram 4 Caption Builder — Custom DOM widget for ComfyUI node.
  *
- * Pattern aligné sur fria_elements_widget.js (qui marche) :
- *   - getValue: () => "" (ComfyUI ne sérialise pas le DOM widget, mais
- *     l'inclut comme une entrée vide — c'est OK car la valeur reste en
- *     place dans widgets_values[] et ne décale pas les autres)
- *   - domWidget.options.height pour la hauteur
- *   - hook loadedGraphNode au niveau de l'extension pour le restore
- *     (appelé APRÈS que ComfyUI a restauré les widgets)
- *   - pas de getMinHeight/getMaxHeight (plus simple, marche chez l'elements)
+ * Pattern aligné sur fria_elements_widget.js (PROUVÉ FONCTIONNEL) :
+ *   - Widgets natifs ComfyUI : seed, width, height (3 INT simples)
+ *   - 2 widgets caches JSON : _ideogram4_data, _api_config
+ *   - TOUT l'etat est dans les 2 JSON caches
+ *   - Restauration via loadedGraphNode (appelé APRÈS restore des widgets)
+ *   - Le DOM widget ne stocke PAS d'etat (getValue: () => "")
  *
- * Widgets visibles (natifs ComfyUI) : seed, width, height, description,
- * element_1..4.
- * Widget interne unique : _api_config (JSON avec api_url, api_key, preset_id, style_id).
+ * Le DOM affiche : description, element_1..4, preset, style, generate, result.
+ * Les valeurs sont syncées vers _ideogram4_data et _api_config pour que
+ * Python puisse les lire.
  *
  * Sortie IMAGE (preview) generee cote Python : voir build_caption().
  */
@@ -30,9 +28,7 @@
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Masquer UNIQUEMENT _api_config ----
-                // On suit le pattern de l'elements widget : widget.hidden + computeSize
-                // Le widget reste dans node.widgets (donc serialise) mais invisible.
+                // ---- Masquer les widgets caches (pattern elements) ----
                 const hideWidget = (n, name) => {
                     const w = n.widgets?.find(x => x.name === name);
                     if (w) {
@@ -42,9 +38,10 @@
                     }
                     return null;
                 };
+                hideWidget(node, "_ideogram4_data");
                 hideWidget(node, "_api_config");
 
-                // ---- Utilitaires ----
+                // ---- Utilitaires API ----
                 const getApiUrl = () => "https://kw.holaf.fr/api";
                 const getApiKey = () => {
                     try { return JSON.parse(localStorage.getItem("FRIA_config") || "{}").apiKey || ""; }
@@ -69,19 +66,19 @@
                     return resp.json();
                 };
 
-                // ---- Cache de rafraichissement ----
+                // ---- Cache ----
                 const _cache = (window.__FRIA_cache = window.__FRIA_cache || { presets: 0, styles: 0 });
                 const CACHE_TTL = 15000;
 
-                async function populateSelect(select, apiPath, labelKey, valKey, placeholder) {
+                async function populateSelect(select, apiPath, placeholder) {
                     select.innerHTML = `<option value="0">${placeholder}</option>`;
                     try {
                         const items = await apiGet(apiPath);
                         if (Array.isArray(items)) {
                             items.forEach(item => {
                                 const o = document.createElement("option");
-                                o.value = item[valKey || "id"];
-                                o.textContent = item[labelKey || "name"];
+                                o.value = item.id;
+                                o.textContent = item.name;
                                 select.appendChild(o);
                             });
                         }
@@ -92,12 +89,12 @@
                     if (now - (_cache[cacheKey] || 0) < CACHE_TTL) return;
                     _cache[cacheKey] = now;
                     const oldVal = select.value;
-                    await populateSelect(select, apiPath, "name", "id", select.options[0]?.textContent || "--");
+                    await populateSelect(select, apiPath, select.options[0]?.textContent || "--");
                     if ([...select.options].some(o => o.value === oldVal)) select.value = oldVal;
                 }
 
                 // ========================================
-                // DOM WIDGET (pattern elements : simple, sans getMinHeight)
+                // DOM WIDGET (construction)
                 // ========================================
 
                 const container = document.createElement("div");
@@ -116,19 +113,42 @@
                     return l;
                 }
 
-                const selectStyle = {
-                    width: "100%", padding: "3px 6px", borderRadius: "4px",
-                    border: "1px solid #555", background: "#3a3a3e",
-                    color: "#ccc", fontSize: "11px", cursor: "pointer",
+                const inputStyle = {
+                    width: "100%", padding: "4px 6px", borderRadius: "4px",
+                    border: "1px solid #555", background: "#1a1a1e", color: "#fff",
+                    fontSize: "11px", boxSizing: "border-box",
                 };
 
-                // ---- 1. Preset + Style (grille 2 col) ----
+                // ---- Description ----
+                const descArea = document.createElement("textarea");
+                Object.assign(descArea.style, inputStyle, {
+                    height: "60px", minHeight: "40px", resize: "vertical",
+                });
+                descArea.placeholder = "Description generale de la scene...";
+                descArea.id = "fria-ideo-desc-" + node.id;
+                container.appendChild(mkLabel("Description"));
+                container.appendChild(descArea);
+
+                // ---- Elements 1..4 ----
+                const elemInputs = [];
+                for (let i = 1; i <= 4; i++) {
+                    const inp = document.createElement("input");
+                    Object.assign(inp.style, inputStyle);
+                    inp.type = "text";
+                    inp.placeholder = `Element ${i} (optionnel)`;
+                    inp.id = `fria-ideo-el${i}-${node.id}`;
+                    container.appendChild(mkLabel(`Element ${i}`));
+                    container.appendChild(inp);
+                    elemInputs.push(inp);
+                }
+
+                // ---- Preset + Style (grille 2 col) ----
                 const psRow = document.createElement("div");
                 Object.assign(psRow.style, { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" });
 
                 const presetDiv = document.createElement("div");
                 const presetSelect = document.createElement("select");
-                Object.assign(presetSelect.style, selectStyle);
+                Object.assign(presetSelect.style, { width: "100%", padding: "3px 6px", borderRadius: "4px", border: "1px solid #555", background: "#3a3a3e", color: "#ccc", fontSize: "11px", cursor: "pointer" });
                 presetSelect.addEventListener("mousedown", () => refreshIfStale(presetSelect, "presets", "presets"));
                 presetDiv.appendChild(mkLabel("Preset IA"));
                 presetDiv.appendChild(presetSelect);
@@ -136,14 +156,14 @@
 
                 const styleDiv = document.createElement("div");
                 const styleSelect = document.createElement("select");
-                Object.assign(styleSelect.style, selectStyle);
+                Object.assign(styleSelect.style, { width: "100%", padding: "3px 6px", borderRadius: "4px", border: "1px solid #555", background: "#3a3a3e", color: "#ccc", fontSize: "11px", cursor: "pointer" });
                 styleSelect.addEventListener("mousedown", () => refreshIfStale(styleSelect, "styles", "styles"));
                 styleDiv.appendChild(mkLabel("Style"));
                 styleDiv.appendChild(styleSelect);
                 psRow.appendChild(styleDiv);
                 container.appendChild(psRow);
 
-                // ---- 2. Bouton Generate ----
+                // ---- Generate bouton ----
                 const generateBtn = document.createElement("button");
                 generateBtn.textContent = "🔄  Generate Ideogram 4 caption";
                 Object.assign(generateBtn.style, {
@@ -156,84 +176,67 @@
                 generateBtn.onmouseleave = () => generateBtn.style.background = "#6366f1";
                 container.appendChild(generateBtn);
 
-                // ---- 3. Resultat (textarea) ----
+                // ---- Resultat ----
                 const resultTextarea = document.createElement("textarea");
-                Object.assign(resultTextarea.style, {
-                    width: "100%",
-                    height: "220px", minHeight: "220px", maxHeight: "220px",
-                    borderRadius: "4px", border: "1px solid #555",
-                    padding: "4px", background: "#1a1a1e", color: "#fff",
-                    fontSize: "11px", resize: "none", boxSizing: "border-box",
+                Object.assign(resultTextarea.style, inputStyle, {
+                    height: "180px", minHeight: "120px", maxHeight: "260px",
+                    resize: "vertical",
                 });
                 resultTextarea.placeholder = "JSON caption Ideogram 4...";
                 resultTextarea.readOnly = true;
-                container.appendChild(mkLabel("Resultat (JSON caption)"));
+                container.appendChild(mkLabel("Resultat"));
                 container.appendChild(resultTextarea);
 
-                // ---- 4. Note preview ----
+                // ---- Note preview ----
                 const previewNote = document.createElement("div");
                 Object.assign(previewNote.style, {
                     fontSize: "10px", color: "#888", textAlign: "center",
-                    fontStyle: "italic", padding: "4px",
+                    fontStyle: "italic", padding: "2px",
                 });
-                previewNote.textContent = "💡 La preview visuelle est dans la sortie IMAGE du node";
+                previewNote.textContent = "💡 La preview visuelle est dans la sortie IMAGE";
                 container.appendChild(previewNote);
 
-                // ---- Integration DOM Widget (pattern elements widget) ----
+                // ---- Integration DOM Widget (pattern elements : simple, fiable) ----
                 const domWidget = node.addDOMWidget("ideogram4_ui", "custom", container, {
                     getValue: () => "",
                     setValue: (v) => {},
                 });
                 domWidget.options = domWidget.options || {};
-                domWidget.options.height = 360;
+                domWidget.options.height = 480;
 
-                // ---- Taille minimum de la node ----
-                const MIN_WIDTH = 360;
-
+                // ---- Taille minimum ----
+                const MIN_WIDTH = 340;
                 const origOnResize = node.onResize;
                 node.onResize = function (size) {
                     if (origOnResize) origOnResize.call(this, size);
                     if (size[0] < MIN_WIDTH) size[0] = MIN_WIDTH;
                 };
-
                 requestAnimationFrame(() => {
-                    if (node.size) {
-                        if (node.size[0] < MIN_WIDTH) {
-                            node.setSize([MIN_WIDTH, node.size[1]]);
-                        }
+                    if (node.size && node.size[0] < MIN_WIDTH) {
+                        node.setSize([MIN_WIDTH, node.size[1]]);
                     }
                 });
 
                 node._resultArea = resultTextarea;
                 node._domWidget = domWidget;
-                node._presetSelect = presetSelect;
-                node._styleSelect = styleSelect;
 
                 // ========================================
-                // _api_config : tout en un
+                // SYNC DOM → widgets caches (pattern elements)
                 // ========================================
-                function readApiConfig() {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (!a || !a.value) {
-                        return { api_url: getApiUrl(), api_key: getApiKey(), preset_id: 0, style_id: 0 };
-                    }
-                    try {
-                        const parsed = JSON.parse(a.value);
-                        return {
-                            api_url: parsed.api_url || getApiUrl(),
-                            api_key: parsed.api_key || getApiKey(),
-                            preset_id: parsed.preset_id || 0,
-                            style_id: parsed.style_id || 0,
-                        };
-                    } catch {
-                        return { api_url: getApiUrl(), api_key: getApiKey(), preset_id: 0, style_id: 0 };
-                    }
+
+                function syncDataWidget() {
+                    const w = node.widgets?.find(x => x.name === "_ideogram4_data");
+                    if (!w) return;
+                    w.value = JSON.stringify({
+                        description: descArea.value,
+                        elements: elemInputs.map(inp => inp.value),
+                    });
                 }
 
-                function saveApiConfig() {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (!a) return;
-                    a.value = JSON.stringify({
+                function syncApiConfigWidget() {
+                    const w = node.widgets?.find(x => x.name === "_api_config");
+                    if (!w) return;
+                    w.value = JSON.stringify({
                         api_url: getApiUrl(),
                         api_key: getApiKey(),
                         preset_id: parseInt(presetSelect.value) || 0,
@@ -241,98 +244,119 @@
                     });
                 }
 
-                presetSelect.onchange = saveApiConfig;
-                styleSelect.onchange = saveApiConfig;
+                // Chaque changement dans le DOM sync vers les widgets caches
+                descArea.oninput = syncDataWidget;
+                elemInputs.forEach(inp => { inp.oninput = syncDataWidget; });
+                presetSelect.onchange = () => { syncApiConfigWidget(); };
+                styleSelect.onchange = () => { syncApiConfigWidget(); };
 
                 // ========================================
-                // RESTORE : _api_config → dropdowns
+                // RESTORE : widgets caches → DOM
                 // ========================================
+
                 function restoreFromWidgets(n) {
-                    const cfg = readApiConfig();
                     let restored = false;
-                    try {
-                        if (cfg.preset_id > 0 && [...presetSelect.options].some(o => o.value === String(cfg.preset_id))) {
-                            presetSelect.value = String(cfg.preset_id);
-                            restored = true;
-                        }
-                        if (cfg.style_id > 0 && [...styleSelect.options].some(o => o.value === String(cfg.style_id))) {
-                            styleSelect.value = String(cfg.style_id);
-                            restored = true;
-                        }
-                        return restored;
-                    } catch { return false; }
+
+                    // Restaurer _ideogram4_data → description + elements
+                    const dataW = n.widgets?.find(w => w.name === "_ideogram4_data");
+                    if (dataW && dataW.value) {
+                        try {
+                            const data = JSON.parse(dataW.value);
+                            if (data.description !== undefined) {
+                                descArea.value = data.description || "";
+                                restored = true;
+                            }
+                            if (Array.isArray(data.elements)) {
+                                for (let i = 0; i < 4; i++) {
+                                    elemInputs[i].value = data.elements[i] || "";
+                                }
+                                restored = true;
+                            }
+                        } catch {}
+                    }
+
+                    // Restaurer _api_config → preset + style
+                    const cfgW = n.widgets?.find(w => w.name === "_api_config");
+                    if (cfgW && cfgW.value) {
+                        try {
+                            const cfg = JSON.parse(cfgW.value);
+                            if (cfg.preset_id > 0 && [...presetSelect.options].some(o => o.value === String(cfg.preset_id))) {
+                                presetSelect.value = String(cfg.preset_id);
+                                restored = true;
+                            }
+                            if (cfg.style_id > 0 && [...styleSelect.options].some(o => o.value === String(cfg.style_id))) {
+                                styleSelect.value = String(cfg.style_id);
+                                restored = true;
+                            }
+                        } catch {}
+                    }
+
+                    return restored;
                 }
+
+                // Stocker sur l'instance pour loadedGraphNode
                 node._friaRestore = restoreFromWidgets.bind(null, node);
 
-                // Peupler les dropdowns
-                populateSelect(presetSelect, "presets", "name", "id", "-- Preset IA --")
-                    .then(() => { restoreFromWidgets(node); saveApiConfig(); });
-                populateSelect(styleSelect, "styles", "name", "id", "-- Style --")
-                    .then(() => { restoreFromWidgets(node); saveApiConfig(); });
+                // Peupler les dropdowns puis restaurer
+                populateSelect(presetSelect, "presets", "-- Preset IA --")
+                    .then(() => restoreFromWidgets(node));
+                populateSelect(styleSelect, "styles", "-- Style --")
+                    .then(() => restoreFromWidgets(node));
 
-                // Init
-                saveApiConfig();
+                // Sync initial
+                syncDataWidget();
+                syncApiConfigWidget();
 
                 // ========================================
                 // GENERATE
                 // ========================================
+
                 generateBtn.onclick = async () => {
                     const get = (name) => node.widgets?.find(w => w.name === name);
-                    const description = (get("description")?.value || "").trim();
-                    const elTexts = ["element_1", "element_2", "element_3", "element_4"]
-                        .map(n => (get(n)?.value || "").trim())
-                        .filter(Boolean);
-                    const seedW = get("seed")?.value;
-                    const widthW = get("width")?.value;
-                    const heightW = get("height")?.value;
+                    const seedW = get("seed");
+                    const widthW = get("width");
+                    const heightW = get("height");
+
+                    const description = descArea.value.trim();
+                    const elTexts = elemInputs.map(inp => inp.value.trim()).filter(Boolean);
 
                     const payload = {
                         text: description,
-                        seed: seedW > 0 ? seedW : null,
+                        seed: parseInt(seedW?.value) > 0 ? parseInt(seedW.value) : null,
                         prompt_type: "ideogram4",
-                        width: widthW || 1024,
-                        height: heightW || 1024,
+                        width: parseInt(widthW?.value) || 1024,
+                        height: parseInt(heightW?.value) || 1024,
                         ep_elements: elTexts.map(t => ({ type: "text", text: t })),
                         preset_id: parseInt(presetSelect.value) || null,
                         style_id: parseInt(styleSelect.value) || null,
                     };
+
                     if (!description && elTexts.length === 0) {
                         resultTextarea.value = "Decris au moins la scene generale ou un element.";
                         return;
                     }
+
                     resultTextarea.value = "Generation en cours...";
                     try {
                         const data = await apiPost("enhance", payload);
-                        const prompt = data.output || "";
-                        resultTextarea.value = prompt;
-                        saveApiConfig();
+                        resultTextarea.value = data.output || "";
+                        syncDataWidget();
+                        syncApiConfigWidget();
                     } catch (err) {
                         resultTextarea.value = "Erreur: " + err.message;
                     }
                 };
 
                 // ========================================
-                // onExecuted (Python run completed) — sur l'INSTANCE
+                // onExecuted (Python run completed, sur l'INSTANCE)
                 // ========================================
+
+                const origExec = node.onExecuted;
                 node.onExecuted = function (output) {
-                    let text = null;
-                    if (output && typeof output === 'object') {
-                        if (output.prompt !== undefined) {
-                            if (Array.isArray(output.prompt)) text = output.prompt[0];
-                            else text = output.prompt;
-                        } else if (Array.isArray(output) && output.length > 0) {
-                            text = output[0];
-                        } else if (typeof output === 'string') {
-                            text = output;
-                        } else {
-                            // Cle numerique : {"0": "text"}
-                            for (const key of Object.keys(output)) {
-                                if (/^\d+$/.test(key)) { text = output[key]; break; }
-                            }
-                        }
-                    }
-                    if (text !== null && text !== undefined) {
-                        resultTextarea.value = String(text);
+                    if (origExec) origExec.call(this, output);
+                    const arr = output?.prompt;
+                    if (Array.isArray(arr) && arr.length > 0) {
+                        resultTextarea.value = String(arr[0]);
                     }
                 };
 
@@ -341,7 +365,6 @@
         },
 
         // Hook appelé APRÈS que ComfyUI a restauré les widgets depuis le workflow
-        // C'est LA méthode fiable pour restaurer l'état du DOM widget.
         async loadedGraphNode(node) {
             if (node._friaRestore) {
                 setTimeout(() => node._friaRestore(), 0);

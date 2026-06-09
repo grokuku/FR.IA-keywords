@@ -1,27 +1,20 @@
 """
 FR.IA Ideogram 4 Caption Builder — Construit un JSON caption Ideogram 4 via LLM.
 
-Widgets visibles (ComfyUI natifs) :
-  - seed (avec control_after generate)
-  - width / height (forceInput : sockets seulement)
-  - description (STRING multiligne)
-  - element_1..4 (STRING multiligne)
-
-Widget interne unique : _api_config (JSON avec api_url, api_key, preset_id, style_id).
-Stocker preset_id et style_id dans ce JSON evite les "points superposes" sur
-les inputs (chaque input ComfyUI a un socket, donc 3 widgets caches = 3 sockets
-qui s'ajoutent inutilement sur la gauche du node).
+Pattern aligné sur FRIAElementsNode :
+  - Widgets natifs ComfyUI MINIMAUX : seed, width, height (3 INT)
+  - 2 widgets caches JSON : _ideogram4_data (description + elements),
+    _api_config (api_url, api_key, preset_id, style_id)
+  - Le DOM widget affiche description, elements, preset, style, generate, result
+  - TOUT l'etat est dans les 2 JSON caches, restauration fiable via loadedGraphNode
 
 Sorties :
   - prompt (STRING) : le JSON caption Ideogram 4
   - width (INT), height (INT) : pour chainage vers d'autres nodes
-  - preview (IMAGE) : rendu PIL du layout (bboxes + texte) a la resolution
-    d'entree. Peut etre connecte a un node Preview/Save Image.
+  - preview (IMAGE) : rendu PIL du layout (bboxes + texte)
 """
 
 import json
-import io
-import base64
 
 
 class FRIAIdeogram4Node:
@@ -34,16 +27,13 @@ class FRIAIdeogram4Node:
         return {
             "required": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
-                "width": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64, "forceInput": True}),
-                "height": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64, "forceInput": True}),
-                "description": ("STRING", {"multiline": True, "default": ""}),
-                "element_1": ("STRING", {"multiline": True, "default": ""}),
-                "element_2": ("STRING", {"multiline": True, "default": ""}),
-                "element_3": ("STRING", {"multiline": True, "default": ""}),
-                "element_4": ("STRING", {"multiline": True, "default": ""}),
+                "width": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
+                "height": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
             },
             "optional": {
-                # JSON serialise par le JS : api_url, api_key, preset_id, style_id
+                # JSON avec description + element_1..4
+                "_ideogram4_data": ("STRING", {"default": "{}", "multiline": True}),
+                # JSON avec api_url, api_key, preset_id, style_id
                 "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             }
         }
@@ -52,8 +42,16 @@ class FRIAIdeogram4Node:
     RETURN_NAMES = ("prompt", "width", "height", "preview")
 
     def build_caption(self, seed=0, width=1024, height=1024,
-                      description="", element_1="", element_2="", element_3="", element_4="",
-                      _api_config="{}"):
+                      _ideogram4_data="{}", _api_config="{}"):
+        # Parser _ideogram4_data
+        try:
+            data = json.loads(_ideogram4_data) if _ideogram4_data else {}
+        except json.JSONDecodeError:
+            data = {}
+        description = data.get("description", "")
+        elements = data.get("elements", [])  # liste de strings
+
+        # Parser _api_config
         try:
             api_cfg = json.loads(_api_config) if _api_config else {}
         except json.JSONDecodeError:
@@ -66,7 +64,7 @@ class FRIAIdeogram4Node:
 
         # Construire le payload pour /api/enhance
         ep_elements = []
-        for el in [element_1, element_2, element_3, element_4]:
+        for el in elements:
             if el and el.strip():
                 ep_elements.append({"type": "text", "text": el.strip()})
 
@@ -117,22 +115,17 @@ def _render_preview(prompt_text, width, height):
     """
     Rend le JSON caption Ideogram 4 en image PIL avec les bboxes.
     Retourne un torch.Tensor [1, H, W, 3] (format ComfyUI IMAGE).
-
-    Si le prompt n'est pas du JSON valide, retourne une image avec un message.
     """
     import torch
     from PIL import Image, ImageDraw, ImageFont
 
-    # Creer une image vide (fond gris fonce comme la preview DOM)
     img = Image.new("RGB", (width, height), (42, 42, 46))
     draw = ImageDraw.Draw(img)
 
-    # Parser le JSON caption
     caption = None
     if prompt_text and prompt_text.strip():
         try:
             s = prompt_text.strip()
-            # Strip code fences
             import re
             m = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", s)
             if m:
@@ -142,7 +135,6 @@ def _render_preview(prompt_text, width, height):
             caption = None
 
     if not caption:
-        # Afficher un message d'erreur au centre
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", max(16, width // 40))
         except Exception:
@@ -159,7 +151,6 @@ def _render_preview(prompt_text, width, height):
     elements = (caption.get("compositional_deconstruction") or {}).get("elements") or []
     background = (caption.get("compositional_deconstruction") or {}).get("background") or ""
 
-    # Police
     try:
         font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", max(14, width // 60))
         font_desc = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", max(12, width // 70))
@@ -168,13 +159,8 @@ def _render_preview(prompt_text, width, height):
         font_pill = font_desc = font_bg = ImageFont.load_default()
 
     colors = [
-        (34, 211, 238),   # cyan
-        (132, 204, 22),   # lime
-        (168, 85, 247),   # violet
-        (234, 179, 8),    # jaune
-        (249, 115, 22),   # orange
-        (236, 72, 153),   # rose
-        (6, 182, 212),    # teal
+        (34, 211, 238), (132, 204, 22), (168, 85, 247),
+        (234, 179, 8), (249, 115, 22), (236, 72, 153), (6, 182, 212),
     ]
 
     for idx, el in enumerate(elements):
@@ -182,7 +168,6 @@ def _render_preview(prompt_text, width, height):
         if not bbox or not isinstance(bbox, list) or len(bbox) != 4:
             continue
         yMin, xMin, yMax, xMax = bbox
-        # bbox en coords 0-1000 -> pixels
         x = int(xMin / 1000 * width)
         y = int(yMin / 1000 * height)
         bw = int((xMax - xMin) / 1000 * width)
@@ -191,11 +176,9 @@ def _render_preview(prompt_text, width, height):
             continue
 
         color = colors[idx % len(colors)]
-        # Fond transparent (mélange avec le fond gris)
         fill = (color[0] // 8 + 42, color[1] // 8 + 42, color[2] // 8 + 46)
         draw.rectangle([x, y, x + bw, y + bh], outline=color, width=2, fill=fill)
 
-        # Pill d'index
         idx_label = f"{idx + 1:02d}"
         pill_pad = 4
         try:
@@ -208,7 +191,6 @@ def _render_preview(prompt_text, width, height):
         draw.rectangle([x, y, x + pw, y + ph], fill=color)
         draw.text((x + pw / 2, y + ph / 2), idx_label, fill=(0, 0, 0), font=font_pill, anchor="mm")
 
-        # Contenu texte
         text_y = y + ph + 4
         if el.get("type") == "text" and el.get("text"):
             txt = f'"{el["text"]}"'
@@ -218,7 +200,6 @@ def _render_preview(prompt_text, width, height):
         elif el.get("desc"):
             _wrap_text(draw, el["desc"], x + 6, text_y, bw - 12, font_desc, 14, 5)
 
-    # Background en bas
     if background:
         bg_h = max(30, height // 25)
         draw.rectangle([0, height - bg_h, width, height], fill=(0, 0, 0))
@@ -228,7 +209,6 @@ def _render_preview(prompt_text, width, height):
 
 
 def _wrap_text(draw, text, x, y, max_w, font, line_h, max_lines):
-    """Wrap text dans max_w pixels, max_lines lignes."""
     words = text.split()
     line = ""
     cur_y = y
@@ -246,7 +226,6 @@ def _wrap_text(draw, text, x, y, max_w, font, line_h, max_lines):
             cur_y += line_h
             lines += 1
             if lines >= max_lines:
-                # Tronquer
                 draw.text((x, cur_y), line + ("..." if i < len(words) - 1 else ""), fill=(255, 255, 255), font=font)
                 return
         else:
@@ -256,9 +235,7 @@ def _wrap_text(draw, text, x, y, max_w, font, line_h, max_lines):
 
 
 def _to_comfy_image(pil_img):
-    """Convertit une PIL.Image en torch.Tensor [1, H, W, 3] (format ComfyUI)."""
     import torch
     import numpy as np
     arr = np.array(pil_img).astype(np.float32) / 255.0
-    # ComfyUI IMAGE: [B, H, W, C]
     return torch.from_numpy(arr).unsqueeze(0)
