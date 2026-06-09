@@ -2291,6 +2291,9 @@ def enhance_prompt():
     preset_id = data.get('preset_id')
     text = data.get('text', '').strip()
     prompt_type = data.get('prompt_type', 'sdxl').strip()
+    # Debug : tracer les params reçus
+    import logging
+    logging.warning(f"[enhance] REQUEST user={user_id} preset_id={preset_id} prompt_type={prompt_type} text_len={len(text)}")
     # Format de sortie : si non fourni, déduit du type de prompt.
     # Par défaut tout est en 'text'. L'editeur de templates peut surcharger
     # par type en creant un template avec un format different.
@@ -2585,6 +2588,15 @@ This style is IMPERATIVE. Keep it exactly as written, do NOT rephrase or summari
         r.raise_for_status()
         result = r.json()
         output = result['choices'][0]['message']['content'].strip()
+        # Retry si l'output est vide (Ollama Cloud peut renvoyer un body vide sans erreur)
+        for retry in range(2):
+            if output:
+                break
+            logging.warning(f"[enhance] LLM output vide, retry {retry+1}/2")
+            r = requests.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=60)
+            r.raise_for_status()
+            result = r.json()
+            output = result['choices'][0]['message']['content'].strip()
         # Debug : log la reponse LLM avec sa longueur
         logging.warning(f"[enhance] LLM response status=200 output_len={len(output)} output_preview={output[:100]!r}")
         # Debug : sortie brute passe 1
