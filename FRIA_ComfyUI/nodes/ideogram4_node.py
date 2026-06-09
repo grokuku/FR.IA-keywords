@@ -31,7 +31,15 @@ class FRIAIdeogram4Node:
                 "height": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
             },
             "optional": {
-                # JSON avec description + element_1..4
+                # Sockets pour connecter d'autres nodes (Elements Picker, etc.)
+                # forceInput = socket only, pas de widget. La valeur connectee
+                # prend le dessus sur _ideogram4_data.
+                "description": ("STRING", {"default": "", "forceInput": True}),
+                "element_1": ("STRING", {"default": "", "forceInput": True}),
+                "element_2": ("STRING", {"default": "", "forceInput": True}),
+                "element_3": ("STRING", {"default": "", "forceInput": True}),
+                "element_4": ("STRING", {"default": "", "forceInput": True}),
+                # JSON avec description + elements (edition manuelle dans le DOM)
                 "_ideogram4_data": ("STRING", {"default": "{}", "multiline": True}),
                 # JSON avec api_url, api_key, preset_id, style_id
                 "_api_config": ("STRING", {"default": "{}", "multiline": True}),
@@ -41,15 +49,29 @@ class FRIAIdeogram4Node:
     RETURN_TYPES = ("STRING", "INT", "INT", "IMAGE")
     RETURN_NAMES = ("prompt", "width", "height", "preview")
 
+    # Marquer les sockets optionnels pour affichage correct
+    INPUT_IS_LIST = False
+
     def build_caption(self, seed=0, width=1024, height=1024,
-                      _ideogram4_data="{}", _api_config="{}"):
-        # Parser _ideogram4_data
+                      description="", element_1="", element_2="",
+                      element_3="", element_4="",
+                      _ideogram4_data="{}", _api_config="{}", **kwargs):
+        # Parser _ideogram4_data (edition manuelle DOM)
         try:
             data = json.loads(_ideogram4_data) if _ideogram4_data else {}
         except json.JSONDecodeError:
             data = {}
-        description = data.get("description", "")
-        elements = data.get("elements", [])  # liste de strings
+        dom_description = data.get("description", "")
+        dom_elements = data.get("elements", [])  # liste de strings
+
+        # Les valeurs connectees (forceInput) prennent le dessus sur le DOM
+        final_description = description.strip() if description and description.strip() else dom_description
+        final_elements = []
+        connected = [element_1, element_2, element_3, element_4]
+        for i in range(4):
+            conn_val = connected[i].strip() if connected[i] else ""
+            dom_val = dom_elements[i].strip() if i < len(dom_elements) else ""
+            final_elements.append(conn_val if conn_val else dom_val)
 
         # Parser _api_config
         try:
@@ -64,12 +86,12 @@ class FRIAIdeogram4Node:
 
         # Construire le payload pour /api/enhance
         ep_elements = []
-        for el in elements:
+        for el in final_elements:
             if el and el.strip():
                 ep_elements.append({"type": "text", "text": el.strip()})
 
         payload = {
-            "text": description.strip(),
+            "text": final_description.strip(),
             "seed": seed if seed > 0 else None,
             "prompt_type": "ideogram4",
             "width": width,

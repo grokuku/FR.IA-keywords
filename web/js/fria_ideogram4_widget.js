@@ -312,13 +312,44 @@
                 // ========================================
 
                 generateBtn.onclick = async () => {
-                    const get = (name) => node.widgets?.find(w => w.name === name);
-                    const seedW = get("seed");
-                    const widthW = get("width");
-                    const heightW = get("height");
+                    const getWidget = (name) => node.widgets?.find(w => w.name === name);
+                    const seedW = getWidget("seed");
+                    const widthW = getWidget("width");
+                    const heightW = getWidget("height");
 
-                    const description = descArea.value.trim();
-                    const elTexts = elemInputs.map(inp => inp.value.trim()).filter(Boolean);
+                    // Lire les valeurs connectees (forceInput = socket only)
+                    // getInputData retourne la valeur du node connecte, ou undefined
+                    const inputNames = ["description", "element_1", "element_2", "element_3", "element_4"];
+                    const connectedValues = {};
+                    if (node.inputs) {
+                        for (const inp of node.inputs) {
+                            if (inputNames.includes(inp.name)) {
+                                const data = node.getInputData?.(inp.link ?? -1);
+                                // getInputData par link n'est pas fiable, on utilise le slot index
+                            }
+                        }
+                    }
+                    // Approche plus fiable : chercher l'index du slot input
+                    for (const name of inputNames) {
+                        const idx = (node.inputs || []).findIndex(i => i.name === name);
+                        if (idx >= 0) {
+                            try {
+                                const slotData = node.getInputData(idx);
+                                if (slotData !== undefined && slotData !== null && String(slotData).trim()) {
+                                    connectedValues[name] = String(slotData).trim();
+                                }
+                            } catch {}
+                        }
+                    }
+
+                    // Merger : connecte prend le dessus sur DOM
+                    const description = connectedValues.description || descArea.value.trim();
+                    const elTexts = [];
+                    for (let i = 0; i < 4; i++) {
+                        const connKey = `element_${i + 1}`;
+                        const val = connectedValues[connKey] || elemInputs[i].value.trim();
+                        if (val) elTexts.push(val);
+                    }
 
                     const payload = {
                         text: description,
