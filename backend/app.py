@@ -317,10 +317,10 @@ def _migrate_templates_to_english():
         existing = cur.execute("SELECT COUNT(*) FROM prompt_templates WHERE is_default = 1").fetchone()[0]
         if existing > 0:
             tmpl_version = cur.execute("SELECT value FROM app_settings WHERE key = 'templates_version'").fetchone()
-            if not tmpl_version or tmpl_version[0] < '6':
+            if not tmpl_version or tmpl_version[0] < '7':
                 cur.execute("DELETE FROM prompt_templates WHERE is_default = 1")
                 _insert_default_templates(mconn)
-                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '6')")
+                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '7')")
                 mconn.commit()
         mconn.close()
     except Exception as e:
@@ -437,187 +437,41 @@ Every category should be relevant to the image being described.
 Adapt categories based on content (e.g. architecture, nature, portrait...).
 Tags should be concise but descriptive."""
 
-    DOC_IDEOGRAM4 = """Ideogram 4 uses STRUCTURED JSON CAPTIONS (not plain text). The model was trained exclusively on this format, and matching it produces significantly better results.
+    DOC_IDEOGRAM4 = """Ideogram 4 uses STRUCTURED JSON CAPTIONS. Output ONLY pure JSON, no code fences, no commentary.
 
-## Required schema
-Every caption has THREE top-level fields. Only `compositional_deconstruction` is mandatory; the other two are strongly recommended.
+## JSON Schema
+{"high_level_description":"1-2 sentence summary","style_description":{"aesthetics":"2-4 keywords","lighting":"specific","photo" OR "art_style":"details","medium":"photograph/illustration/etc","color_palette":["#RRGGBB"]},"compositional_deconstruction":{"background":"scene backdrop","elements":[{"type":"obj","bbox":[y_min,x_min,y_max,x_max],"desc":"..."}]}}
 
-{
-  "high_level_description": "1-2 sentence summary of the entire image",
-  "style_description": { "aesthetics", "lighting", "photo" OR "art_style", "medium", "color_palette" (optional) },
-  "compositional_deconstruction": {
-    "background": "Description of the background/environment",
-    "elements": [
-      { "type": "obj", "bbox": [y_min, x_min, y_max, x_max], "desc": "..." },
-      { "type": "text", "bbox": [...], "text": "literal text", "desc": "..." }
-    ]
-  }
-}
+Key order: high_level_description, style_description, compositional_deconstruction.
+Use EITHER "photo" OR "art_style", never both.
+In style_description: photo path = aesthetics, lighting, photo, medium, color_palette. Non-photo = aesthetics, lighting, medium, art_style, color_palette.
+Required: aesthetics, lighting, medium. color_palette is optional.
 
-## STRICT rules
-1. KEY ORDER matters — the model was trained on a specific order. Always output keys in this sequence:
-   - high_level_description (string)
-   - style_description
-   - compositional_deconstruction
-   - Within style_description (photo path): aesthetics, lighting, photo, medium, color_palette
-   - Within style_description (non-photo path): aesthetics, lighting, medium, art_style, color_palette
-   - Within compositional_deconstruction: background FIRST, then elements
-   - Within element "obj": type, bbox, desc, color_palette
-   - Within element "text": type, bbox, text, desc, color_palette
-2. Use EITHER "photo" OR "art_style" in style_description — never both, never neither.
-3. Required inside style_description: aesthetics, lighting, medium. color_palette is the only optional field.
-4. `background` is REQUIRED in compositional_deconstruction (the user-provided "general description" largely feeds this field).
-5. `elements` is REQUIRED, must be an array. When the user provides named elements to place, EACH ONE MUST appear in the array with a `bbox` (see rule 6).
-6. `bbox` is REQUIRED for every element in the `elements` array. The user has explicitly listed elements to place in the scene, and they expect to see WHERE each one goes. Format: [y_min, x_min, y_max, x_max] in NORMALIZED 0-1000 coordinates (origin top-left). The image is 1000x1000 in this space regardless of actual width/height.
-   - **NEVER** omit `bbox` for an element the user asked to place. Even a rough guess is better than no bbox.
-   - All values must be integers in [0, 1000].
-   - Aspect ratio (from IMAGE DIMENSIONS): 1:1 → square bboxes; 16:9 → wider bboxes; 9:16 → taller bboxes; 4:3 → moderate width.
-   - For a 1:1 image, useful bbox zones:
-     * Center subject: [200, 250, 800, 750]
-     * Top-left corner: [0, 0, 400, 400]
-     * Top-right: [0, 600, 400, 1000]
-     * Bottom-left: [600, 0, 1000, 400]
-     * Bottom-right: [600, 600, 1000, 1000]
-     * Top strip: [0, 100, 300, 900]
-     * Bottom strip: [700, 100, 1000, 900]
-     * Full frame: [0, 0, 1000, 1000]
-   - For 16:9 (1920x1080 → use 1000x562 equivalent): scale x values normally, compress y to ~562 max. Useful zones:
-     * Left third: [0, 0, 1000, 333]
-     * Center third: [0, 333, 1000, 666]
-     * Right third: [0, 666, 1000, 1000]
-   - For 9:16 (vertical, e.g. portrait phone): scale y normally, compress x to ~562 max.
-   - Do NOT overlap bounding boxes significantly unless the elements are clearly together.
-   - The main subject (first listed element) typically gets the largest bbox.
-7. `color_palette` format: array of UPPERCASE #RRGGBB strings (e.g. "#1B1B2F", NOT "#1b1b2f" or "#fff"). Up to 16 colors in style_description, up to 5 per element.
-8. Each element's `type` is either "obj" (object/subject) or "text" (literal text to render in the image).
-9. Output format: PURE JSON, NO code block (no ```json wrapping), NO commentary, NO markdown.
-10. The first element in `elements` should typically be the main subject (most prominent). Arrange other elements by visual importance.
+doc_bboxes_rule (IMPORTANT): bbox format: [y_min, x_min, y_max, x_max] in 0-1000 coords, origin top-left. EVERY element MUST have a bbox. Elements MUST NOT overlap (unless physically together like holding hands). Main subject = largest bbox, centered.
 
-## Spatial reasoning: derive bbox from the element description
-The bbox must be consistent with PHYSICAL LOGIC, not random. Read each
-element's `desc` carefully and infer the position from spatial cues:
+color_palette: array of UPPERCASE #RRGGBB strings. Up to 16 in style, up to 5 per element.
+Element type: "obj" for subjects/objects, "text" for literal text rendered in image.
+background is REQUIRED in compositional_deconstruction.
+Aspect ratio from IMAGE DIMENSIONS: 1:1 square bboxes; 16:9 wider bboxes; 9:16 taller bboxes.
 
-### Depth / z-order
-- "in the foreground", "in front", "close-up" → FOREGROUND (large bbox, lower y in image)
-- "in the background", "behind", "in the distance" → BACKGROUND (small bbox, upper y)
-- **"looking up at X"** → the gazer is FOREGROUND/LOWER, the target is ABOVE/BEHIND (eyes look UP toward target)
-- **"looking down at X"** → the gazer is BACKGROUND/UPPER, the target is BELOW/FOREGROUND
-- "standing in front of", "occluding" → FOREGROUND
-- "partially hidden by" → BACKGROUND
-
-### Lateral position
-- "to the left", "on the left side" → left third (x ≈ 0-333)
-- "to the right", "on the right side" → right third (x ≈ 667-1000)
-- "in the center", "in the middle", "between" → center (x ≈ 333-667)
-
-### Vertical placement
-- "on the ground", "at their feet", "standing on the floor" → BOTTOM (y ≈ 700-1000)
-- "in the sky", "above them", "overlooking" → TOP (y ≈ 0-300)
-- "floating", "flying" → middle/upper
-
-### Size / perspective
-- Closer to camera / larger in frame → bigger bbox (500-700 px area)
-- Farther / smaller → smaller bbox (100-300 px area)
-- Main subject ≈ 50% of frame, secondary ≈ 30%, tertiary ≈ 20%
-- Vary the sizes — DO NOT make all elements the same size
-
-### Examples
-- "A small dog, wagging its tail, looking up at the couple" → SMALL bbox at BOTTOM (it's looking up = it's low)
-- "A man holding hands with the woman" → MEDIUM bbox at CENTER, same y as the woman (they stand side by side)
-- "Mountains in the distance" → SMALL bbox at TOP (background, small)
-- "Their feet on the ground" → SMALL bbox at BOTTOM
-- "Clouds in the sky" → WIDE bbox at TOP
-
-### Mental visualization step (IMPORTANT)
-Before assigning bboxes, take a moment to mentally PICTURE the final image:
-1. Read the general description + all elements together.
-2. Imagine the scene as a photograph: who is where, what's behind, what's in front.
-3. The "ELEMENTS" are the people/objects the user CARES ABOUT — they should be the main visible subjects, with the bbox covering the actual subject area (head to feet, or object bounds).
-4. The "background" is everything else — it should NOT overlap with element bboxes.
-5. The user gave you the elements in some order: treat the FIRST as the main subject (largest, centered), and the rest as supporting elements around it.
-6. Think of the image as a stage: foreground actors (large, lower) vs background scenery (small, upper).
-
-### Action verbs determine vertical position (CRITICAL)
-The verb in each element's `desc` tells you where the subject physically is. Apply this rule strictly:
-
-**Ground-level actions (bbox bottom edge near y=700-1000):**
-- "standing", "walking", "running", "sitting", "kneeling", "crouching", "crawling"
-- "lying", "lying down", "on the ground", "at their feet"
-- "diving", "plunging", "diving for the ball", "on the floor", "fallen"
-- "playing in the sand", "sitting on the beach"
-
-**Mid-air actions (bbox can span the full height, centered around y=200-700):**
-- "jumping", "leaping", "in the air", "flying", "soaring"
-- "spiking" (volleyball), "blocking" (jumping up to block), "dunking" (basketball)
-- "swinging on a rope", "hanging from"
-
-**Above scene (bbox near y=0-300):**
-- "flying overhead", "in the sky", "in the clouds", "above the scene"
-- "perched high", "sitting on a branch high up"
-
-### Examples (apply the verb rules):
-- "A woman diving to receive the ball" → bbox at BOTTOM (y=400-950), WIDE (she's horizontal/spread out on the sand)
-- "A woman jumping to block" → bbox centered (y=100-800), TALL (vertical leap)
-- "A woman spiking the ball" → bbox centered (y=50-700), TALL (arm raised, mid-air)
-- "A woman standing on the beach" → bbox centered (y=150-1000), TALL (full body)
-- "A man running across the field" → bbox centered (y=200-950), at appropriate lateral position
-- "A dog sitting at their feet" → bbox at BOTTOM (y=750-1000), small
-- "A bird flying in the sky" → bbox at TOP (y=0-300), small
-- "Clouds above the beach" → bbox at TOP (y=0-300), wide
-
-**CHECK YOUR WORK**: for every element, ask "if I closed my eyes and someone described this scene to me, where would this element be on the photograph?" If your bbox says one thing and your mental image says another, FIX THE BBOX.
-
-### Common mistakes to avoid
-- DO NOT place "looking up at X" ABOVE X (gazer must be lower)
-- DO NOT place background elements LARGER than foreground ones
-- DO NOT place "ground" elements at the top, or "sky" at the bottom
-- DO NOT make all elements the same size
-- DO NOT rotate the composition: bboxes assume the image is in its normal upright orientation. The bbox y-axis goes TOP (0) to BOTTOM (1000).
-
-## Mapping user input to JSON fields
-- The "general description" → high_level_description + the style_description fields (aesthetics, lighting, photo/art_style, medium) + the background of compositional_deconstruction.
-- Each numbered entry under "ELEMENTS TO PLACE IN THE SCENE" → one entry in the elements array (type "obj", desc = the element's text, bbox = calculated from the scene). **Every numbered element MUST get a bbox.**
-- The IMAGE DIMENSIONS line is a HINT for aspect ratio. Map the LLM's bbox calculations to match the requested aspect ratio (e.g. for 16:9, use wider bboxes).
-- The STYLE block, if provided, MUST be preserved verbatim inside the appropriate style_description field.
+## Mapping user input to JSON
+- General description -> high_level_description + style_description + background
+- Each numbered element -> one entry in elements (type "obj", bbox from scene)
+- IMAGE DIMENSIONS -> aspect ratio hint for bbox proportions
+- STYLE block -> preserved verbatim in style_description
 
 ## Tips
-- **bbox is MANDATORY** for every element. The user wants to SEE where each element is placed.
-- Keep 2-5 elements unless the user listed more. Each one needs a non-overlapping bbox.
-- `medium` should be one of: "photograph", "illustration", "3d_render", "painting", "graphic_design", "sketch", "watercolor", "anime"...
-- For "aesthetics" use 2-4 keywords: "moody, cinematic, desaturated", "warm, playful, vibrant", "minimal, professional, geometric"...
-- For "lighting" be specific: "golden hour, rim light", "low-key, deep shadows", "even, diffuse studio lighting"...
-- For "photo" (if used) include camera details: "35mm, f/1.4, shallow DoF", "wide angle, f/8, long exposure"...
-- For "art_style" (if used) describe the look: "flat vector illustration, bold outlines", "cel shading, vibrant colors"...
+- medium: photograph, illustration, 3d_render, painting, anime...
+- aesthetics: 2-4 keywords
+- lighting: be specific (golden hour rim light, low-key deep shadows)
+- photo: include camera details
+- art_style: describe the look
 
-## Example input
-GENERAL DESCRIPTION (scene, style, lighting, mood):
-A medium-shot photograph of a barista pouring latte art in a cozy cafe.
-ELEMENTS TO PLACE IN THE SCENE:
-  1. A young barista with curly hair, focused expression
-  2. A porcelain cup with intricate latte art
-  3. An espresso machine with brass details
-IMAGE DIMENSIONS: 1024x1024 pixels (aspect ratio: 1:1)
-
-## Expected output
-{
-  "high_level_description": "A medium-shot photograph of a barista carefully pouring latte art in a warm, cozy cafe.",
-  "style_description": {
-    "aesthetics": "warm, intimate, artisanal",
-    "lighting": "soft natural window light, gentle shadows",
-    "photo": "shallow depth of field, eye-level, 50mm lens",
-    "medium": "photograph",
-    "color_palette": ["#F5E6D3", "#6F4E37", "#FFFFFF", "#2C1810", "#D4A574"]
-  },
-  "compositional_deconstruction": {
-    "background": "A blurred cafe interior with warm wooden counters, hanging plants, and the suggestion of other patrons in soft focus.",
-    "elements": [
-      {"type": "obj", "bbox": [200, 250, 800, 700], "desc": "A young barista with curly auburn hair and a focused expression, wearing a cream apron over a dark shirt."},
-      {"type": "obj", "bbox": [550, 400, 750, 650], "desc": "A white porcelain cup with intricate rosetta latte art, sitting on a small wooden saucer."},
-      {"type": "obj", "bbox": [100, 600, 500, 1000], "desc": "A vintage brass espresso machine with steam rising from its portafilter, polished wood accents."}
-    ]
-  }
-}"""
-
+## Example (barista scene, 3 elements, no overlap)
+Input: A medium-shot photograph of a barista pouring latte art in a cozy cafe. Elements: 1. A young barista with curly hair. 2. A porcelain cup with latte art. 3. An espresso machine. 1024x1024.
+Output:
+{"high_level_description":"A medium-shot photograph of a barista carefully pouring latte art in a warm, cozy cafe.","style_description":{"aesthetics":"warm, intimate, artisanal","lighting":"soft natural window light, gentle shadows","photo":"shallow depth of field, eye-level, 50mm lens","medium":"photograph","color_palette":["#F5E6D3","#6F4E37","#FFFFFF","#2C1810"]},"compositional_deconstruction":{"background":"A blurred cafe interior with warm wooden counters and hanging plants in soft focus.","elements":[{"type":"obj","bbox":[150,200,750,600],"desc":"A young barista with curly auburn hair, focused expression, wearing a cream apron."},{"type":"obj","bbox":[500,450,700,680],"desc":"A white porcelain cup with intricate rosetta latte art on a wooden saucer."},{"type":"obj","bbox":[100,650,450,1000],"desc":"A vintage brass espresso machine with steam rising, polished wood accents."}]}}
+"""
     DOCS = {
         "sd15": DOC_SD15,
         "sdxl": DOC_SDXL,
@@ -2610,67 +2464,111 @@ This style is IMPERATIVE. Keep it exactly as written, do NOT rephrase or summari
 def _validate_caption_pass(current_output, original_input, style_text, width, height,
                             api_key, base_url, model, pass_idx):
     """
-    Passe d'auto-critique : le LLM relit le JSON caption et corrige les
-    problemes de coherence (bboxes physiquement impossibles, elements
-    places au mauvais endroit, etc.).
+    Passe dediee au placement des bounding boxes.
+    Le LLM recoit le JSON caption + l'input original, et son SEUL job
+    est de placer les bboxes de maniere coherente avec la scene.
 
     Retourne le JSON corrige, ou None si pas de correction necessaire.
     """
     import requests as _req
+    import re as _re
 
     # Tenter de parser le JSON
     try:
         s = current_output.strip()
-        import re as _re
         m = _re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", s)
         if m:
             s = m.group(1)
-        json.loads(s)
+        parsed = json.loads(s)
         parsed_ok = True
     except Exception:
         parsed_ok = False
+        parsed = None
 
     if not parsed_ok:
-        # JSON invalide : demander au LLM de regenerer
-        critique_prompt = f"""The previous Ideogram 4 caption is NOT valid JSON. Regenerate it as a valid JSON object matching the schema. Output ONLY the JSON, no commentary."""
+        critique_prompt = ("The previous Ideogram 4 caption is NOT valid JSON. "
+                           "Regenerate it as a valid JSON object matching the schema. "
+                           "Output ONLY the JSON, no commentary.")
     else:
-        # JSON valide : demander de verifier la coherence
-        if pass_idx == 0:
-            focus = """Focus on these issues:
-1. BBOXES: for each element, ask "if I closed my eyes and someone described this scene to me, where would this element physically be?" Fix any element placed in a physically impossible position (e.g. "looking up at X" placed ABOVE X, "on the ground" placed at the top, "background" larger than "foreground").
-2. ACTION VERBS: a person "diving" or "lying" must be at the BOTTOM. A person "jumping" or "leaping" must be MID-IMAGE. A person "flying in the sky" must be at the TOP.
-3. RELATIVE SIZE: the main subject (first listed) must have the largest bbox. Background elements must be smaller than foreground.
-4. NO OVERLAP (unless elements are clearly together, e.g. "holding hands", "embracing").
-5. ASPECT RATIO: if width={width} and height={height}, bboxes must match this aspect ratio.
-6. EVERY element must have a non-null bbox. NEVER remove an element."""
+        # Extraire les elements pour guider le LLM
+        elements = (parsed.get('compositional_deconstruction') or {}).get('elements') or []
+        element_summaries = []
+        for i, el in enumerate(elements):
+            bbox = el.get('bbox', '?')
+            desc = (el.get('desc') or el.get('text') or '?')[:80]
+            element_summaries.append(f"  Element {i+1}: {desc} | current bbox: {bbox}")
+        elements_text = '\n'.join(element_summaries) if element_summaries else "  (no elements)"
+
+        # Calculer l'aspect ratio
+        from math import gcd
+        g = gcd(width, height) if width and height else 1
+        aspect = f"{width//g}:{height//g}"
+
+        # Le nombre d'elements determine le layout suggere
+        n = len(elements)
+        if n >= 4:
+            layout_hint = """For 4+ elements, a typical NO-OVERLAP layout:
+   [01] upper-left   (y=80-800,  x=30-470)
+   [02] upper-right  (y=80-800,  x=530-970)
+   [03] lower-left   (y=450-950, x=50-450)
+   [04] lower-right  (y=450-950, x=550-950)
+   Adjust based on each element's ACTION and DESCRIPTION."""
+        elif n == 3:
+            layout_hint = """For 3 elements, a typical NO-OVERLAP layout:
+   [01] center-main  (largest, centered)
+   [02] left-side    (medium, left third)
+   [03] right-side   (medium, right third)
+   Adjust based on each element's ACTION and DESCRIPTION."""
+        elif n == 2:
+            layout_hint = """For 2 elements: place them side by side (left/right) or one foreground/one background based on their descriptions."""
         else:
-            focus = """Final pass: double-check the bboxes are physically coherent and respect the scene description. Make MINIMAL changes — only fix clear errors. Output the corrected JSON."""
+            layout_hint = """Single element: centered, large bbox."""
 
-        critique_prompt = f"""You are an expert image composition critic. Review the following Ideogram 4 caption JSON for SPATIAL COHERENCE.
+        # Prompt dedie UNIQUEMENT au placement des bboxes
+        critique_prompt = f"""You are a SPATIAL COMPOSITION expert. Your ONLY job is to place bounding boxes correctly in an image.
 
-ORIGINAL USER INPUT:
+SCENE CONTEXT (from user input):
 {original_input}
 
-{f"SYTLE (must be preserved): {style_text}" if style_text else ""}
+CURRENT ELEMENTS AND THEIR BBOXES:
+{elements_text}
 
-CURRENT JSON CAPTION:
+IMAGE SIZE: {width}x{height} (aspect ratio: {aspect})
+
+PLACEMENT RULES (bbox = [y_min, x_min, y_max, x_max], coords 0-1000, origin top-left):
+1. Elements MUST NOT overlap. Each element gets its own zone.
+2. The FIRST element is the main subject: largest bbox, centered.
+3. Size varies by importance: main=40-50%, secondary=20-30%, tertiary=15-20%.
+4. Physical position follows the description:
+   - standing/walking/running -> full height, feet near y=900-1000
+   - diving/lying/on the ground -> BOTTOM, wide horizontal
+   - jumping/leaping/spiking/blocking -> mid-height, tall vertical
+   - in the sky/flying -> TOP (y=0-300)
+   - to the left -> left third (x=50-300)
+   - to the right -> right third (x=700-950)
+   - in the center -> center (x=300-700)
+   - behind/in background -> small, higher position
+   - in front/in foreground -> large, lower position
+   - looking up at X -> must be BELOW X
+   - looking down at X -> must be ABOVE X
+5. {layout_hint}
+6. NEVER remove or add elements. Keep the same number and descriptions.
+7. Output the COMPLETE JSON with corrected bboxes. Preserve everything else unchanged.
+
+CURRENT FULL JSON:
 {current_output}
 
-{focus}
+Output ONLY the corrected JSON. No code fences, no commentary."""
 
-If you find problems, output the CORRECTED JSON with the issues fixed. If the JSON is already correct, output it unchanged.
-
-Output ONLY the JSON object. No code fences, no commentary."""
-
-    # Appel LLM pour la critique/correction
+    # Appel LLM
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'} if api_key else {'Content-Type': 'application/json'}
     payload = {
         'model': model,
         'messages': [
-            {'role': 'system', 'content': 'You are a precise JSON Ideogram 4 caption critic. You output ONLY corrected JSON.'},
+            {'role': 'system', 'content': 'You are a spatial composition expert. You output ONLY corrected JSON with properly placed bounding boxes.'},
             {'role': 'user', 'content': critique_prompt},
         ],
-        'temperature': 0.1,  # tres bas pour rester deterministe
+        'temperature': 0.1,
         'max_tokens': 2000,
         'frequency_penalty': 0.0,
         'repeat_penalty': 1.0,
@@ -2685,12 +2583,12 @@ Output ONLY the JSON object. No code fences, no commentary."""
 
     # Nettoyer les fences
     if new_output.startswith('```'):
-        lines = new_output.split('\n')
-        if lines[0].startswith('```'):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == '```':
-            lines = lines[:-1]
-        new_output = '\n'.join(lines).strip()
+        nl = new_output.split('\n')
+        if nl[0].startswith('```'):
+            nl = nl[1:]
+        if nl and nl[-1].strip() == '```':
+            nl = nl[:-1]
+        new_output = '\n'.join(nl).strip()
 
     # Verifier que c'est du JSON valide
     try:
@@ -2702,8 +2600,6 @@ Output ONLY the JSON object. No code fences, no commentary."""
         return new_output
     except Exception:
         return None
-
-
 @app.route('/api/generate', methods=['POST'])
 def generate_prompt():
     guard = _login_required()

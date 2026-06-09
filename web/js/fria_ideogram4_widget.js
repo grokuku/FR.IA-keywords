@@ -4,10 +4,6 @@
  * Widgets natifs ComfyUI (visibles) : seed, width, height, description, element_1..4
  * Widget cache : _api_config (JSON interne)
  * DOM widget : preset IA, style, generate, resultat
- *
- * DIAGNOSTIC : ajoute un bouton "🔍 Debug" qui affiche dans la console
- * l'etat complet des widgets (nom, type, valeur) pour debugger la
- * serialisation.
  */
 (function waitForApp() {
     const app = window.app || window.comfyAPI?.app?.app;
@@ -88,48 +84,7 @@
                 }
 
                 // ========================================
-                // DIAGNOSTIC
-                // ========================================
-
-                function dumpWidgets() {
-                    console.group(`%c[FR.IA] Node #${node.id} — Diagnostic widgets`, "font-weight:bold;color:#6366f1");
-                    console.log("node.widgets.length =", node.widgets?.length);
-                    console.log("node.inputs.length =", node.inputs?.length);
-                    console.table(
-                        (node.widgets || []).map((w, i) => ({
-                            index: i,
-                            name: w.name,
-                            type: w.type,
-                            value: typeof w.value === "string" ? w.value.substring(0, 80) + (w.value.length > 80 ? "..." : "") : w.value,
-                            hidden: !!w.hidden,
-                        }))
-                    );
-                    console.log("node.inputs:");
-                    console.table(
-                        (node.inputs || []).map((inp, i) => ({
-                            index: i,
-                            name: inp.name,
-                            type: inp.type,
-                            link: inp.link,
-                        }))
-                    );
-
-                    // Lire le workflow serialise
-                    try {
-                        const graphData = app.graphToPrompt ? null : app.serialize?.();
-                        if (graphData) {
-                            const myNode = (graphData.nodes || []).find(n => n.id === node.id);
-                            if (myNode) {
-                                console.log("widgets_values (dans workflow):", JSON.stringify(myNode.widgets_values));
-                            }
-                        }
-                    } catch {}
-
-                    console.groupEnd();
-                }
-
-                // ========================================
-                // DOM WIDGET : juste preset/style/generate/result/debug
+                // DOM WIDGET
                 // ========================================
 
                 const container = document.createElement("div");
@@ -196,16 +151,6 @@
                 container.appendChild(resultTextarea);
 
                 // ---- Debug bouton ----
-                const debugBtn = document.createElement("button");
-                debugBtn.textContent = "🔍 Debug widgets (console)";
-                Object.assign(debugBtn.style, {
-                    width: "100%", padding: "4px", borderRadius: "4px",
-                    border: "1px solid #555", background: "#3a3a3e", color: "#ccc",
-                    fontSize: "10px", cursor: "pointer",
-                });
-                debugBtn.onclick = () => dumpWidgets();
-                container.appendChild(debugBtn);
-
                 // ---- Preview note ----
                 const previewNote = document.createElement("div");
                 Object.assign(previewNote.style, {
@@ -290,34 +235,6 @@
                 saveApiConfig();
 
                 // ========================================
-                // DIAGNOSTIC : intercepter onConfigure pour voir les valeurs entrantes
-                // ========================================
-
-                const origConfigure = node.onConfigure;
-                node.onConfigure = function (info) {
-                    if (origConfigure) origConfigure.call(this, info);
-                    console.log(`%c[FR.IA] Node #${node.id} onConfigure`, "color:#f59e0b;font-weight:bold");
-                    console.log("  widgets_values entrant:", JSON.stringify(info?.widgets_values));
-                    console.table(
-                        (info?.widgets_values || []).map((v, i) => ({
-                            index: i,
-                            value: typeof v === "string" ? v.substring(0, 60) + (v.length > 60 ? "..." : "") : v,
-                        }))
-                    );
-                    // Log post-restore
-                    setTimeout(() => {
-                        console.log(`%c[FR.IA] Node #${node.id} post-restore:`, "color:#22c55e;font-weight:bold");
-                        console.table(
-                            (node.widgets || []).map((w, i) => ({
-                                index: i,
-                                name: w.name,
-                                value: typeof w.value === "string" ? w.value.substring(0, 60) + (w.value.length > 60 ? "..." : "") : w.value,
-                            }))
-                        );
-                    }, 50);
-                };
-
-                // ========================================
                 // GENERATE
                 // ========================================
 
@@ -370,37 +287,13 @@
                     }
                 };
 
-                // ---- Dump initial ----
-                setTimeout(() => {
-                    console.log(`%c[FR.IA] Node #${node.id} onNodeCreated (initial)`, "color:#06b6d4;font-weight:bold");
-                    console.table(
-                        (node.widgets || []).map((w, i) => ({
-                            index: i,
-                            name: w.name,
-                            type: w.type,
-                            value: typeof w.value === "string" ? w.value.substring(0, 60) + (w.value.length > 60 ? "..." : "") : w.value,
-                            hidden: !!w.hidden,
-                        }))
-                    );
-                }, 100);
-
                 return r;
             };
         },
 
         async loadedGraphNode(node) {
             if (node._friaRestore) {
-                setTimeout(() => {
-                    node._friaRestore();
-                    console.log(`%c[FR.IA] Node #${node.id} loadedGraphNode`, "color:#a855f7;font-weight:bold");
-                    console.table(
-                        (node.widgets || []).map((w, i) => ({
-                            index: i,
-                            name: w.name,
-                            value: typeof w.value === "string" ? w.value.substring(0, 60) + (w.value.length > 60 ? "..." : "") : w.value,
-                        }))
-                    );
-                }, 0);
+                setTimeout(() => node._friaRestore(), 0);
             }
         },
     });
