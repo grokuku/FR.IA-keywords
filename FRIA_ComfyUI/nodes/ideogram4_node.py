@@ -1,17 +1,15 @@
 """
 FR.IA Ideogram 4 Caption Builder — Construit un JSON caption Ideogram 4 via LLM.
 
-Pattern aligné sur FRIAElementsNode :
-  - Widgets natifs ComfyUI MINIMAUX : seed, width, height (3 INT)
-  - 2 widgets caches JSON : _ideogram4_data (description + elements),
-    _api_config (api_url, api_key, preset_id, style_id)
-  - Le DOM widget affiche description, elements, preset, style, generate, result
-  - TOUT l'etat est dans les 2 JSON caches, restauration fiable via loadedGraphNode
+Entrees :
+  - seed (INT) : widget natif ComfyUI
+  - width / height (INT) : widgets natifs, connectables
+  - description (STRING multiligne) : widget natif ComfyUI
+  - element_1..4 (STRING) : widget natif ComfyUI, connectables
+  - _api_config (STRING, cache) : JSON interne
 
 Sorties :
-  - prompt (STRING) : le JSON caption Ideogram 4
-  - width (INT), height (INT) : pour chainage vers d'autres nodes
-  - preview (IMAGE) : rendu PIL du layout (bboxes + texte)
+  - prompt (STRING), width (INT), height (INT), preview (IMAGE)
 """
 
 import json
@@ -29,19 +27,13 @@ class FRIAIdeogram4Node:
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "width": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
                 "height": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
+                "description": ("STRING", {"multiline": True, "default": ""}),
+                "element_1": ("STRING", {"default": ""}),
+                "element_2": ("STRING", {"default": ""}),
+                "element_3": ("STRING", {"default": ""}),
+                "element_4": ("STRING", {"default": ""}),
             },
             "optional": {
-                # Sockets pour connecter d'autres nodes (Elements Picker, etc.)
-                # forceInput = socket only, pas de widget. La valeur connectee
-                # prend le dessus sur _ideogram4_data.
-                "description": ("STRING", {"default": "", "forceInput": True}),
-                "element_1": ("STRING", {"default": "", "forceInput": True}),
-                "element_2": ("STRING", {"default": "", "forceInput": True}),
-                "element_3": ("STRING", {"default": "", "forceInput": True}),
-                "element_4": ("STRING", {"default": "", "forceInput": True}),
-                # JSON avec description + elements (edition manuelle dans le DOM)
-                "_ideogram4_data": ("STRING", {"default": "{}", "multiline": True}),
-                # JSON avec api_url, api_key, preset_id, style_id
                 "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             }
         }
@@ -49,31 +41,10 @@ class FRIAIdeogram4Node:
     RETURN_TYPES = ("STRING", "INT", "INT", "IMAGE")
     RETURN_NAMES = ("prompt", "width", "height", "preview")
 
-    # Marquer les sockets optionnels pour affichage correct
-    INPUT_IS_LIST = False
-
     def build_caption(self, seed=0, width=1024, height=1024,
                       description="", element_1="", element_2="",
                       element_3="", element_4="",
-                      _ideogram4_data="{}", _api_config="{}", **kwargs):
-        # Parser _ideogram4_data (edition manuelle DOM)
-        try:
-            data = json.loads(_ideogram4_data) if _ideogram4_data else {}
-        except json.JSONDecodeError:
-            data = {}
-        dom_description = data.get("description", "")
-        dom_elements = data.get("elements", [])  # liste de strings
-
-        # Les valeurs connectees (forceInput) prennent le dessus sur le DOM
-        final_description = description.strip() if description and description.strip() else dom_description
-        final_elements = []
-        connected = [element_1, element_2, element_3, element_4]
-        for i in range(4):
-            conn_val = connected[i].strip() if connected[i] else ""
-            dom_val = dom_elements[i].strip() if i < len(dom_elements) else ""
-            final_elements.append(conn_val if conn_val else dom_val)
-
-        # Parser _api_config
+                      _api_config="{}"):
         try:
             api_cfg = json.loads(_api_config) if _api_config else {}
         except json.JSONDecodeError:
@@ -84,14 +55,13 @@ class FRIAIdeogram4Node:
         preset_id = api_cfg.get("preset_id") or None
         style_id = api_cfg.get("style_id") or None
 
-        # Construire le payload pour /api/enhance
         ep_elements = []
-        for el in final_elements:
+        for el in [element_1, element_2, element_3, element_4]:
             if el and el.strip():
                 ep_elements.append({"type": "text", "text": el.strip()})
 
         payload = {
-            "text": final_description.strip(),
+            "text": description.strip(),
             "seed": seed if seed > 0 else None,
             "prompt_type": "ideogram4",
             "width": width,
@@ -105,7 +75,6 @@ class FRIAIdeogram4Node:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        # Appeler l'API
         try:
             import requests
             r = requests.post(f"{api_url}/enhance",
@@ -124,7 +93,6 @@ class FRIAIdeogram4Node:
             else:
                 prompt = f"Erreur API : {msg}"
 
-        # Rendu de l'image preview
         preview_tensor = _render_preview(prompt, width, height)
 
         return {
@@ -134,10 +102,6 @@ class FRIAIdeogram4Node:
 
 
 def _render_preview(prompt_text, width, height):
-    """
-    Rend le JSON caption Ideogram 4 en image PIL avec les bboxes.
-    Retourne un torch.Tensor [1, H, W, 3] (format ComfyUI IMAGE).
-    """
     import torch
     from PIL import Image, ImageDraw, ImageFont
 
