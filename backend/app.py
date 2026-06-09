@@ -2490,75 +2490,43 @@ def _validate_caption_pass(current_output, original_input, style_text, width, he
                            "Regenerate it as a valid JSON object matching the schema. "
                            "Output ONLY the JSON, no commentary.")
     else:
-        # Extraire les elements pour guider le LLM
+        # Extraire les elements
         elements = (parsed.get('compositional_deconstruction') or {}).get('elements') or []
-        element_summaries = []
+        element_list = []
         for i, el in enumerate(elements):
             bbox = el.get('bbox', '?')
-            desc = (el.get('desc') or el.get('text') or '?')[:80]
-            element_summaries.append(f"  Element {i+1}: {desc} | current bbox: {bbox}")
-        elements_text = '\n'.join(element_summaries) if element_summaries else "  (no elements)"
+            desc = (el.get('desc') or el.get('text') or '?')[:120]
+            element_list.append(f"  {i+1}. {desc} | bbox: {bbox}")
+        elements_text = '\n'.join(element_list) if element_list else "  (none)"
 
-        # Calculer l'aspect ratio
         from math import gcd
         g = gcd(width, height) if width and height else 1
         aspect = f"{width//g}:{height//g}"
 
-        # Le nombre d'elements determine le layout suggere
-        n = len(elements)
-        if n >= 4:
-            layout_hint = """For 4+ elements, a typical NO-OVERLAP layout:
-   [01] upper-left   (y=80-800,  x=30-470)
-   [02] upper-right  (y=80-800,  x=530-970)
-   [03] lower-left   (y=450-950, x=50-450)
-   [04] lower-right  (y=450-950, x=550-950)
-   Adjust based on each element's ACTION and DESCRIPTION."""
-        elif n == 3:
-            layout_hint = """For 3 elements, a typical NO-OVERLAP layout:
-   [01] center-main  (largest, centered)
-   [02] left-side    (medium, left third)
-   [03] right-side   (medium, right third)
-   Adjust based on each element's ACTION and DESCRIPTION."""
-        elif n == 2:
-            layout_hint = """For 2 elements: place them side by side (left/right) or one foreground/one background based on their descriptions."""
-        else:
-            layout_hint = """Single element: centered, large bbox."""
+        # Prompt simple et direct : le LLM sait deja ce qu'est une personne debout
+        critique_prompt = f"""Fix the bounding boxes in this Ideogram 4 caption.
 
-        # Prompt dedie UNIQUEMENT au placement des bboxes
-        critique_prompt = f"""You are a SPATIAL COMPOSITION expert. Your ONLY job is to place bounding boxes correctly in an image.
+USER SCENE: {original_input}
 
-SCENE CONTEXT (from user input):
-{original_input}
-
-CURRENT ELEMENTS AND THEIR BBOXES:
+ELEMENTS (each one is a separate subject that needs a bbox):
 {elements_text}
 
-IMAGE SIZE: {width}x{height} (aspect ratio: {aspect})
+IMAGE: {width}x{height} ({aspect})
 
-PLACEMENT RULES (bbox = [y_min, x_min, y_max, x_max], coords 0-1000, origin top-left):
-1. Elements MUST NOT overlap. Each element gets its own zone.
-2. The FIRST element is the main subject: largest bbox, centered.
-3. Size varies by importance: main=40-50%, secondary=20-30%, tertiary=15-20%.
-4. Physical position follows the description:
-   - standing/walking/running -> full height, feet near y=900-1000
-   - diving/lying/on the ground -> BOTTOM, wide horizontal
-   - jumping/leaping/spiking/blocking -> mid-height, tall vertical
-   - in the sky/flying -> TOP (y=0-300)
-   - to the left -> left third (x=50-300)
-   - to the right -> right third (x=700-950)
-   - in the center -> center (x=300-700)
-   - behind/in background -> small, higher position
-   - in front/in foreground -> large, lower position
-   - looking up at X -> must be BELOW X
-   - looking down at X -> must be ABOVE X
-5. {layout_hint}
-6. NEVER remove or add elements. Keep the same number and descriptions.
-7. Output the COMPLETE JSON with corrected bboxes. Preserve everything else unchanged.
+Your ONLY task: imagine a photograph of this scene, then assign each element a bounding box that matches WHERE that person/object would actually be in the photo.
 
-CURRENT FULL JSON:
+bbox format: [y_min, x_min, y_max, x_max], coords 0-1000, origin top-left.
+
+Rules:
+- Each element gets its own NON-OVERLAPPING zone
+- The bbox shape must match the subject: a standing person is tall and narrow, a diving person is wide and short, a bird in the sky is small and high up
+- The first element is the main subject (largest, centered)
+- Never remove or add elements
+
+Current JSON:
 {current_output}
 
-Output ONLY the corrected JSON. No code fences, no commentary."""
+Output ONLY the corrected JSON. No code fences."""
 
     # Appel LLM
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'} if api_key else {'Content-Type': 'application/json'}
