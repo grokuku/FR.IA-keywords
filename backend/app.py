@@ -317,10 +317,10 @@ def _migrate_templates_to_english():
         existing = cur.execute("SELECT COUNT(*) FROM prompt_templates WHERE is_default = 1").fetchone()[0]
         if existing > 0:
             tmpl_version = cur.execute("SELECT value FROM app_settings WHERE key = 'templates_version'").fetchone()
-            if not tmpl_version or tmpl_version[0] < '8':
+            if not tmpl_version or tmpl_version[0] < '9':
                 cur.execute("DELETE FROM prompt_templates WHERE is_default = 1")
                 _insert_default_templates(mconn)
-                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '8')")
+                cur.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('templates_version', '9')")
                 mconn.commit()
         mconn.close()
     except Exception as e:
@@ -447,7 +447,7 @@ Use EITHER "photo" OR "art_style", never both.
 In style_description: photo path = aesthetics, lighting, photo, medium, color_palette. Non-photo = aesthetics, lighting, medium, art_style, color_palette.
 Required: aesthetics, lighting, medium. color_palette is optional.
 
-doc_bboxes_rule (IMPORTANT): bbox format: [y_min, x_min, y_max, x_max], coords 0-1000 = 0-100% of each dimension, origin top-left. A bbox SURROUNDS the subject tightly. For a standing person: y_span > x_span (tall narrow). For a lying/diving person: x_span > y_span (wide short). NEVER make a standing person's bbox wider than it is tall. Element LAYOUT depends on image aspect ratio: landscape = spread horizontally, portrait = stack vertically. EVERY element MUST have a bbox. Elements MUST NOT overlap (unless physically together like holding hands). Main subject = largest bbox, centered.
+doc_bboxes_rule (IMPORTANT): bbox format: [y_min, x_min, y_max, x_max] in PIXEL COORDINATES matching the IMAGE DIMENSIONS. Origin top-left. A bbox SURROUNDS the subject tightly. For a standing person: y_span > x_span (tall narrow). For a lying/diving person: x_span > y_span (wide short). NEVER make a standing person's bbox wider than it is tall. EVERY element MUST have a bbox. Elements MUST NOT overlap (unless physically together like holding hands). Main subject = largest bbox, centered.
 
 color_palette: array of UPPERCASE #RRGGBB strings. Up to 16 in style, up to 5 per element.
 Element type: "obj" for subjects/objects, "text" for literal text rendered in image.
@@ -466,8 +466,8 @@ background is REQUIRED in compositional_deconstruction.
 - photo: include camera details
 - art_style: describe the look
 
-## Example (barista scene, 3 elements, no overlap)
-Input: A medium-shot photograph of a barista pouring latte art in a cozy cafe. Elements: 1. A young barista with curly hair. 2. A porcelain cup with latte art. 3. An espresso machine. 1024x1024.
+## Example (barista scene, 3 elements, 1024x1024 image, bboxes in pixel coords)
+Input: A medium-shot photograph of a barista pouring latte art in a cozy cafe. Elements: 1. A young barista with curly hair. 2. A porcelain cup with latte art. 3. An espresso machine. IMAGE DIMENSIONS: 1024x1024.
 Output:
 {"high_level_description":"A medium-shot photograph of a barista carefully pouring latte art in a warm, cozy cafe.","style_description":{"aesthetics":"warm, intimate, artisanal","lighting":"soft natural window light, gentle shadows","photo":"shallow depth of field, eye-level, 50mm lens","medium":"photograph","color_palette":["#F5E6D3","#6F4E37","#FFFFFF","#2C1810"]},"compositional_deconstruction":{"background":"A blurred cafe interior with warm wooden counters and hanging plants in soft focus.","elements":[{"type":"obj","bbox":[150,200,750,600],"desc":"A young barista with curly auburn hair, focused expression, wearing a cream apron."},{"type":"obj","bbox":[500,450,700,680],"desc":"A white porcelain cup with intricate rosetta latte art on a wooden saucer."},{"type":"obj","bbox":[100,650,450,1000],"desc":"A vintage brass espresso machine with steam rising, polished wood accents."}]}}
 """
@@ -2117,6 +2117,66 @@ def get_default_templates():
 
 # ── Enhance ─────────────────────────────────────────────────────────
 
+def convert_bboxes_to_normalized(json_text, width, height):
+    """
+    Convertit les bboxes du JSON caption de pixels vers 0-1000 normalise.
+    Le LLM genere les bboxes en coordonnees pixels (car c'est plus intuitif),
+    mais l'API Ideogram 4 attend du 0-1000 normalise.
+
+    Pour chaque element avec un bbox [y_min, x_min, y_max, x_max] en pixels :
+      y_min_norm = round(y_min / height * 1000)
+      x_min_norm = round(x_min / width * 1000)
+      y_max_norm = round(y_max / height * 1000)
+      x_max_norm = round(x_max / width * 1000)
+    """
+    import re
+    if not json_text or not width or not height:
+        return json_text
+    try:
+        s = json_text.strip()
+        # Strip code fences si present
+        m = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', s)
+        if m:
+            s = m.group(1)
+        data = json.loads(s)
+    except Exception:
+        return json_text
+
+    elements = (data.get("compositional_deconstruction") or {}).get("elements") or []
+    changed = False
+    for el in elements:
+        bbox = el.get("bbox")
+        if not bbox or not isinstance(bbox, list) or len(bbox) != 4:
+            continue
+        y_min, x_min, y_max, x_max = bbox
+        # Detecter si deja en 0-1000 (toutes valeurs <= 1000)
+        # Si max value > 1000, c'est des pixels -> convertir
+        max_val = max(y_min, x_min, y_max, x_max)
+        if max_val <= 1000:
+            continue  # deja normalise, on touche pas
+        # Clamp aux dimensions de l'image
+        y_min = max(0, min(y_min, height))
+        x_min = max(0, min(x_min, width))
+        y_max = max(y_min + 1, min(y_max, height))
+        x_max = max(x_min + 1, min(x_max, width))
+        # Convertir en 0-1000
+        el["bbox"] = [
+            round(y_min / height * 1000),
+            round(x_min / width * 1000),
+            round(y_max / height * 1000),
+            round(x_max / width * 1000),
+        ]
+        changed = True
+
+    if changed:
+        # Re-serialiser en gardant le meme format
+        try:
+            return json.dumps(data, ensure_ascii=False)
+        except Exception:
+            return json_text
+    return json_text
+
+
 @app.route('/api/enhance', methods=['POST'])
 def enhance_prompt():
     guard = _login_required()
@@ -2281,7 +2341,7 @@ def enhance_prompt():
         'flux': 'Prompt Flux, description longue et naturelle en anglais.',
         'anima': 'Prompt Anime/Manga, tags Danbooru avec suffixes specifiques (pixel art, lineart, flat color, etc.).',
         'qwen': 'Prompt Qwen, format optimise pour modele Qwen2-VL / image generation.',
-        'ideogram4': 'JSON Ideogram 4 : caption structuree avec high_level_description, style_description (aesthetics, lighting, photo/art_style, medium, color_palette optionnel) et compositional_deconstruction (background + elements avec bbox obligatoire en coordonnees 0-1000). Format JSON strict, ordre des cles preserve.',
+        'ideogram4': 'JSON Ideogram 4 : caption structuree avec high_level_description, style_description (aesthetics, lighting, photo/art_style, medium, color_palette optionnel) et compositional_deconstruction (background + elements avec bbox obligatoire en coordonnees pixels). Format JSON strict, ordre des cles preserve.',
     }
 
     format_instruction = type_formats.get(prompt_type, type_formats['sdxl'])
@@ -2457,6 +2517,10 @@ This style is IMPERATIVE. Keep it exactly as written, do NOT rephrase or summari
             # En cas d'erreur de validation, on garde la sortie precedente
             pass
 
+    # Convertir les bboxes de pixels vers 0-1000 normalise (Ideogram 4)
+    if prompt_type == 'ideogram4' and width and height:
+        output = convert_bboxes_to_normalized(output, width, height)
+
     return jsonify({'output': output, 'negative_prompt': negative_prompt, 'model_used': model})
 
 
@@ -2514,7 +2578,7 @@ IMAGE: {width}x{height} (aspect ratio: {aspect})
 
 Your ONLY task: imagine a photograph of this scene, then assign each element a bounding box that matches WHERE that person/object would actually be in the photo.
 
-bbox format: [y_min, x_min, y_max, x_max], coords 0-1000 = 0-100% of each dimension, origin top-left.
+bbox format: [y_min, x_min, y_max, x_max] in pixel coordinates matching the image dimensions. Origin top-left.
 
 Rules:
 - Each element gets its own NON-OVERLAPPING zone
