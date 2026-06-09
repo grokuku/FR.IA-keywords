@@ -129,7 +129,9 @@ def _render_preview(prompt_text, width, height):
     from PIL import Image, ImageDraw, ImageFont
 
     img = Image.new("RGB", (width, height), (42, 42, 46))
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
+    draw_o = ImageDraw.Draw(overlay)
 
     caption = None
     if prompt_text and prompt_text.strip():
@@ -161,9 +163,9 @@ def _render_preview(prompt_text, width, height):
     background = (caption.get("compositional_deconstruction") or {}).get("background") or ""
 
     try:
-        font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", max(14, width // 60))
-        font_desc = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", max(12, width // 70))
-        font_bg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf", max(11, width // 80))
+        font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", max(20, width // 40))
+        font_desc = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", max(18, width // 50))
+        font_bg = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf", max(16, width // 60))
     except Exception:
         font_pill = font_desc = font_bg = ImageFont.load_default()
 
@@ -185,35 +187,40 @@ def _render_preview(prompt_text, width, height):
             continue
 
         color = colors[idx % len(colors)]
-        fill = (color[0] // 8 + 42, color[1] // 8 + 42, color[2] // 8 + 46)
-        draw.rectangle([x, y, x + bw, y + bh], outline=color, width=2, fill=fill)
+        # Fill transparent (alpha=40) pour voir les bboxes en arriere-plan
+        fill_rgba = (color[0], color[1], color[2], 40)
+        draw_o.rectangle([x, y, x + bw, y + bh], outline=color + (255,), width=3, fill=fill_rgba)
 
         idx_label = f"{idx + 1:02d}"
-        pill_pad = 4
+        pill_pad = 6
         try:
-            pb = draw.textbbox((0, 0), idx_label, font=font_pill)
+            pb = draw_o.textbbox((0, 0), idx_label, font=font_pill)
             pw = pb[2] - pb[0] + pill_pad * 2
-            ph = pb[3] - pb[1] + 2
+            ph = pb[3] - pb[1] + 4
         except Exception:
-            pw, ph = 20, 16
-        pw = max(pw, 22)
-        draw.rectangle([x, y, x + pw, y + ph], fill=color)
+            pw, ph = 28, 22
+        pw = max(pw, 28)
+        draw_o.rectangle([x, y, x + pw, y + ph], fill=color + (255,))
         draw.text((x + pw / 2, y + ph / 2), idx_label, fill=(0, 0, 0), font=font_pill, anchor="mm")
 
-        text_y = y + ph + 4
+        text_y = y + ph + 6
         if el.get("type") == "text" and el.get("text"):
             txt = f'"{el["text"]}"'
             draw.text((x + 6, text_y), txt, fill=color, font=font_pill)
             if el.get("desc"):
-                draw.text((x + 6, text_y + 18), el["desc"], fill=(255, 255, 255, 200), font=font_desc)
+                draw.text((x + 6, text_y + 22), el["desc"], fill=(255, 255, 255), font=font_desc)
         elif el.get("desc"):
-            _wrap_text(draw, el["desc"], x + 6, text_y, bw - 12, font_desc, 14, 5)
+            _wrap_text(draw, el["desc"], x + 6, text_y, bw - 12, font_desc, 18, 5)
 
     if background:
-        bg_h = max(30, height // 25)
-        draw.rectangle([0, height - bg_h, width, height], fill=(0, 0, 0))
-        _wrap_text(draw, "BG: " + background, 6, height - bg_h + 4, width - 12, font_bg, 13, 3)
+        bg_h = max(40, height // 20)
+        # Bandeau BG semi-transparent pour rester lisible
+        bg_overlay = Image.new("RGBA", (width, bg_h), (0, 0, 0, 200))
+        overlay.paste(bg_overlay, (0, height - bg_h))
+        _wrap_text(draw, "BG: " + background, 6, height - bg_h + 4, width - 12, font_bg, 18, 3)
 
+    # Composite overlay transparent sur l'image de fond
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
     return _to_comfy_image(img)
 
 

@@ -299,6 +299,31 @@ Bugs identifiés lors de l'audit, classés par priorité :
 - [ ] Bouton "Tout recharger" → regénère le cache pour tous les filtres
 - [ ] Slider de confiance minimale dans le générateur (panneau droit)
 
+### Phase 7 — Community & Management
+
+#### Feature Requests
+- [ ] Page `/features` listant les demandes de fonctionnalités des utilisateurs
+- [ ] Système de vote (👍/👎) sur chaque feature request
+- [ ] Statuts : "proposée", "en cours", "faite", "refusée"
+- [ ] Filtrer par statut, tri par votes/popularité
+- [ ] Suggestion automatique : à la saisie, chercher si une feature similaire existe déjà
+- [ ] Notification quand une feature change de statut
+
+#### User Prompts
+- [ ] Page `/prompts` : bibliothèque de prompts partagés par les utilisateurs
+- [ ] Formulaire d'ajout : titre, prompt texte, type (SDXL/Flux/Ideogram4...), tags libres
+- [ ] Édition : l'auteur peut modifier son prompt après publication
+- [ ] Recherche de doublons : avant validation, comparer le nouveau prompt à la base via LLM (similarité sémantique) et afficher les prompts proches existants
+- [ ] Système de rating (👍/👎) comme les feature requests
+- [ ] Filtres : par type, par note minimale, par tag, par auteur
+- [ ] Modération : signaler un prompt inapproprié, les admins peuvent cacher/supprimer
+- [ ] Export d'un prompt vers le générateur (clic → charge dans l'enhancer)
+
+#### Technique
+- [ ] Nouvelles tables BDD : `feature_requests` (id, user_id, title, description, status, created_at), `feature_votes` (id, feature_id, user_id, vote), `user_prompts` (id, user_id, title, prompt_text, prompt_type, tags, rating, created_at), `prompt_ratings` (id, prompt_id, user_id, vote)
+- [ ] Nouveaux endpoints API : CRUD feature requests + votes, CRUD user prompts + ratings, dédoublonnage LLM (`POST /api/prompts/detect-duplicates`)
+- [ ] Middleware admin pour la modération
+
 ---
 
 ## 🐛 Bugs identifiés
