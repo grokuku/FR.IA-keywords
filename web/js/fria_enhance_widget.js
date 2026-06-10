@@ -33,21 +33,55 @@
                 };
                 // base_prompt et special_instructions : widgets natifs ComfyUI (volontairement visibles)
                 // elements : forceInput:True dans INPUT_TYPES (déjà input socket, pas de widget à cacher)
-                ["prompt_type", "preset_id", "style_id"].forEach(
-                    n => hideWidget(node, n)
-                );
 
-                // ---- _api_config : créé dynamiquement, pas dans INPUT_TYPES ----
-                // Si on déclarait _api_config dans INPUT_TYPES, ComfyUI créerait une
-                // socket d'entrée visible sur le node (même en optional STRING, la
-                // socket est générée). Comme on veut QUE le widget (pour la sérialisation
-                // du workflow → Python) sans socket visible, on crée le widget à la main
-                // via addWidget() après l'init. Le widget est dans node.widgets, donc
-                // sérialisé et accessible par Python, mais aucune socket n'est créée.
+                // ---- Widgets créés dynamiquement (pas dans INPUT_TYPES) ----
+                // Pour les widgets qui pilotent le DOM (prompt_type, preset_id, style_id)
+                // et pour _api_config (cache technique), on les crée via addWidget()
+                // plutôt que via INPUT_TYPES. Cela évite que ComfyUI génère une socket
+                // d'entrée visible sur le node (les widgets déclarés dans INPUT_TYPES
+                // ont TOUS une socket coexistant avec le widget, depuis ComfyUI v1.16).
+                // Le widget reste dans node.widgets, donc sérialisé dans le workflow et
+                // accessible par Python comme argument keyword de enhance().
+
+                if (!node.widgets.find(w => w.name === "prompt_type")) {
+                    // COMBO : dropdown avec valeurs fixes (sdxl, sd15, flux, anima, qwen, liste)
+                    const w = node.addWidget("COMBO", "prompt_type", "sdxl", () => {}, {
+                        values: ["sdxl", "sd15", "flux", "anima", "qwen", "liste"],
+                    });
+                    if (w) w.serialize = true; // garantir la sérialisation
+                }
+
+                if (!node.widgets.find(w => w.name === "preset_id")) {
+                    node.addWidget("INT", "preset_id", 0, () => {}, { min: 0 });
+                }
+
+                if (!node.widgets.find(w => w.name === "style_id")) {
+                    node.addWidget("INT", "style_id", 0, () => {}, { min: 0 });
+                }
+
                 if (!node.widgets.find(w => w.name === "_api_config")) {
                     node.addWidget("STRING", "_api_config", "{}", () => {});
                 }
-                hideWidget(node, "_api_config");
+
+                // Cacher tous les widgets pilotés par le DOM
+                ["prompt_type", "preset_id", "style_id", "_api_config"].forEach(
+                    n => hideWidget(node, n)
+                );
+
+                // ---- Supprimer les sockets d'entrée des widgets natifs visibles ----
+                // base_prompt et special_instructions sont des widgets natifs ComfyUI
+                // volontairement affichés, MAIS depuis ComfyUI v1.16 chaque widget a
+                // aussi une socket d'entrée dans node.inputs[]. Comme on ne veut pas
+                // que l'utilisateur puisse brancher un câble dessus (ces champs sont
+                // du texte pur, pas des entrées de flux), on supprime les sockets.
+                // Le widget reste intact dans node.widgets[], donc la valeur est
+                // toujours sérialisée et lue par Python.
+                for (const inputName of ["base_prompt", "special_instructions"]) {
+                    const slot = node.findInputSlot?.(inputName);
+                    if (slot !== undefined && slot !== -1) {
+                        node.removeInput(slot);
+                    }
+                }
 
                 // ---- Utilitaires ----
                 const getApiUrl = () => "https://kw.holaf.fr/api";
