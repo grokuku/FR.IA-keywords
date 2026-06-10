@@ -46,14 +46,14 @@
                 // ---- Supprimer les sockets d'entrée non désirées ----
                 // Depuis ComfyUI v1.16, chaque widget STRING/COMBO/INT déclaré dans
                 // INPUT_TYPES génère automatiquement une socket d'entrée dans
-                // node.inputs[]. Comme on ne veut PAS que l'utilisateur puisse brancher
-                // un câble sur ces champs (texte, dropdowns, et cache interne), on
-                // supprime les sockets après création. Le widget reste intact dans
-                // node.widgets[], donc la valeur est toujours sérialisée et lue par Python.
+                // node.inputs[]. On supprime les sockets des champs purement techniques
+                // (pilote de DOM, cache interne) pour qu'aucun câble ne puisse y être
+                // branché. En revanche, base_prompt et special_instructions GARDENT
+                // leur socket : ils ont une "pastille" visible à gauche de leur label,
+                // ce qui permet à l'utilisateur de brancher une STRING depuis un autre
+                // node (par ex. un autre FR.IA ou un node texte custom).
                 for (const inputName of [
-                    "base_prompt", "special_instructions",
-                    "prompt_type", "preset_id", "style_id",
-                    "_api_config",
+                    "prompt_type", "preset_id", "style_id", "_api_config",
                 ]) {
                     const slot = node.findInputSlot?.(inputName);
                     if (slot !== undefined && slot !== -1) {
