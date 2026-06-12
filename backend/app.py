@@ -2456,6 +2456,23 @@ def enhance_finish():
     except Exception as e:
         return jsonify({'error': f'Erreur post-traitement : {e}'}), 500
 
+    # Passes de validation (Ideogram 4) en mode local : le backend les fait
+    # en interne en appelant le LLM du preset (qui peut etre Ollama local du user).
+    # NOTE : a terme, on deleguera aussi ces passes au client. Pour l'instant,
+    # c'est le backend qui les orchestre apres que le client ait fait la passe 1.
+    if prepared['validation_passes'] > 0:
+        result['output'] = _run_validation_passes_internal(
+            prepared, result['output'], prepared['debug_sections']
+        )
+        # Reconstruire le debug_md avec les sections de validation
+        if prepared['prompt_type'] == 'ideogram4' and prepared['debug_sections']:
+            result['debug_md'] = _build_debug_markdown(
+                prepared['debug_sections'],
+                result.get('_conversion_debug'),
+                prepared['width'], prepared['height']
+            )
+    result.pop('_conversion_debug', None)
+
     # Nettoyer la session (succès)
     _delete_enhance_session(session_id)
 
@@ -2465,7 +2482,7 @@ def enhance_finish():
 
 
 def _do_enhance(user_id, data):
-    """Orchestrateur cloud: prepare + appel LLM interne + finish. Mode rétrocompatible."""
+    """Orchestrateur cloud: prepare + appel LLM interne + finish (passe 1) + passes de validation."""
     prepared = _prepare_enhance(user_id, data)
     if isinstance(prepared, tuple):  # erreur
         return prepared
@@ -2480,7 +2497,22 @@ def _do_enhance(user_id, data):
         if 'connect' in msg.lower() or 'refused' in msg.lower():
             return jsonify({'error': f'Serveur LLM inaccessible : verifie l\'URL ({prepared["llm_config"]["base_url"]})'}), 502
         return jsonify({'error': f'Erreur LLM: {msg}'}), 502
-    return _finish_enhance(user_id, prepared, llm_response)
+    result = _finish_enhance(user_id, prepared, llm_response)
+    # Passes de validation (Ideogram 4) en mode cloud : tout en interne
+    if prepared['validation_passes'] > 0:
+        result['output'] = _run_validation_passes_internal(
+            prepared, result['output'], prepared['debug_sections']
+        )
+        # Reconstruire le debug_md avec les nouvelles sections de validation
+        if prepared['prompt_type'] == 'ideogram4' and prepared['debug_sections']:
+            result['debug_md'] = _build_debug_markdown(
+                prepared['debug_sections'],
+                result.get('_conversion_debug'),
+                prepared['width'], prepared['height']
+            )
+    # Retirer la cle technique du return
+    result.pop('_conversion_debug', None)
+    return result
 
 
 # ── Sessions /api/enhance en mode client-side (LLM local) ──────────────
@@ -2975,24 +3007,14 @@ def _finish_enhance(user_id, prepared, llm_response):
     except Exception:
         pass  # non-bloquant
 
-    # ── Auto-critique : passes de validation (Ideogram 4 uniquement) ────
-    # NOTE : pour l'instant, les passes de validation sont TOUJOURS faites
-    # par le backend (en interne). Une future evolution permettra de
-    # les delester au client en mode local (cf. ROADMAP).
-    api_key = prepared['llm_config']['api_key']
-    base_url = prepared['llm_config']['base_url']
-    for pass_idx in range(prepared['validation_passes']):
-        try:
-            corrected, val_debug = _validate_caption_pass(
-                output, merged_text, style_text, width, height,
-                api_key, base_url, model, pass_idx
-            )
-            debug_sections.append(val_debug)
-            if corrected:
-                output = corrected
-        except Exception:
-            # En cas d'erreur de validation, on garde la sortie precedente
-            pass
+    # NOTE : les passes de validation (Ideogram 4) sont orchestrées par
+    # l'appelant de _finish_enhance :
+    #   - _do_enhance (cloud) appelle _run_validation_passes_internal apres
+    #   - /api/enhance/finish (client-side) appelle _run_validation_passes_client
+    # Cela permet de décentraliser les passes de validation au client en mode local.
+    # Sauvegarde du resultat partiel avant les passes de validation.
+    # (Voir _run_validation_passes_internal plus bas)
+    pass
 
     # Convertir les bboxes de pixels vers 0-1000 normalise (Ideogram 4)
     conversion_debug = None
@@ -3006,19 +3028,51 @@ def _finish_enhance(user_id, prepared, llm_response):
     if prompt_type == 'ideogram4' and debug_sections:
         debug_md = _build_debug_markdown(debug_sections, conversion_debug, width, height)
 
-    return {'output': output, 'negative_prompt': prepared['negative_prompt'], 'model_used': model, 'debug_md': debug_md}
+    return {
+        'output': output,
+        'negative_prompt': prepared['negative_prompt'],
+        'model_used': model,
+        'debug_md': debug_md,
+        # Exposed pour permettre a l'appelant (cloud ou client) de reconstruire
+        # le debug_md apres les passes de validation (qui modifient debug_sections).
+        '_conversion_debug': conversion_debug,
+    }
 
 
-def _validate_caption_pass(current_output, original_input, style_text, width, height,
-                            api_key, base_url, model, pass_idx):
+def _run_validation_passes_internal(prepared, output, debug_sections):
     """
-    Passe dediee au placement des bounding boxes.
-    Le LLM recoit le JSON caption + l'input original, et son SEUL job
-    est de placer les bboxes de maniere coherente avec la scene.
+    Orchestrateur des passes de validation pour le mode CLOUD.
+    Execute TOUTES les passes en interne (le backend fait les appels LLM).
+    Modifie 'output' en place. Met a jour debug_sections.
 
-    Retourne (json_corrige, debug_dict) ou (None, debug_dict) si pas de correction.
+    A terme, cette fonction sera jumelée avec une variante client-side
+    (cf. TODO dans /api/enhance/finish).
     """
-    import requests as _req
+    for pass_idx in range(prepared['validation_passes']):
+        try:
+            corrected, val_debug = _do_validation_pass(
+                output, prepared['merged_text'], prepared['style_text'],
+                prepared['width'], prepared['height'],
+                prepared['llm_config'], pass_idx
+            )
+            debug_sections.append(val_debug)
+            if corrected:
+                output = corrected
+        except Exception:
+            # En cas d'erreur de validation, on garde la sortie precedente
+            pass
+    return output
+
+
+def _prepare_validation_pass(current_output, original_input, style_text, width, height, model, pass_idx):
+    """
+    Etape 1 d'une passe de validation (Ideogram 4).
+    Construit le payload LLM a envoyer au modele pour corriger les bboxes.
+
+    Retourne (llm_request, debug_dict) :
+    - llm_request : payload OpenAI standard a poster sur /chat/completions
+    - debug_dict : dict de debug (sera complete par _finish_validation_pass)
+    """
     debug = {'pass': pass_idx + 1, 'api_calls': []}
     import re as _re
 
@@ -3078,9 +3132,7 @@ Current JSON:
 
 Output ONLY the corrected JSON. No code fences."""
 
-    # Appel LLM
-    headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'} if api_key else {'Content-Type': 'application/json'}
-    payload = {
+    llm_request = {
         'model': model,
         'messages': [
             {'role': 'system', 'content': 'You are a spatial composition expert. You output ONLY corrected JSON with properly placed bounding boxes.'},
@@ -3093,20 +3145,25 @@ Output ONLY the corrected JSON. No code fences."""
     }
     # Debug : enregistrer l'appel de validation
     debug['api_calls'].append({
-        'system_prompt': payload['messages'][0]['content'],
+        'system_prompt': llm_request['messages'][0]['content'],
         'user_prompt': critique_prompt[:3000],
-        'temperature': payload['temperature'],
+        'temperature': llm_request['temperature'],
         'model': model,
     })
-    try:
-        r = _req.post(f'{base_url}/chat/completions', headers=headers, json=payload, timeout=180)
-        r.raise_for_status()
-        result = r.json()
-        new_output = result['choices'][0]['message']['content'].strip()
-        debug['api_calls'][-1]['raw_output'] = new_output[:3000]
-    except Exception as e:
-        debug['api_calls'][-1]['error'] = str(e)
-        return None, debug
+    return llm_request, debug
+
+
+def _finish_validation_pass(llm_response, debug):
+    """
+    Etape 2 d'une passe de validation (Ideogram 4).
+    Prend la reponse LLM, verifie que c'est du JSON valide.
+    Retourne (new_output|None, debug_updated).
+    - new_output : la string JSON corrigee, ou None si invalide
+    - debug_updated : debug avec le raw_output et le status ajoutes
+    """
+    import re as _re
+    new_output = llm_response['choices'][0]['message']['content'].strip()
+    debug['api_calls'][-1]['raw_output'] = new_output[:3000]
 
     # Nettoyer les fences
     if new_output.startswith('```'):
@@ -3129,6 +3186,30 @@ Output ONLY the corrected JSON. No code fences."""
     except Exception as e:
         debug['api_calls'][-1]['status'] = f'invalid_json: {e}'
         return None, debug
+
+
+def _do_validation_pass(current_output, original_input, style_text, width, height, llm_config, pass_idx):
+    """
+    Helper retro-compatible : prepare + appel LLM interne + finish d'une passe.
+    Utilise uniquement par le flow cloud (mode local delegue au client).
+    Retourne (new_output|None, debug_dict).
+    """
+    import requests as _req
+    llm_request, debug = _prepare_validation_pass(
+        current_output, original_input, style_text, width, height,
+        llm_config['model'], pass_idx
+    )
+    base_url = llm_config['base_url']
+    api_key = llm_config.get('api_key', '')
+    headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {api_key}'} if api_key else {'Content-Type': 'application/json'}
+    try:
+        r = _req.post(f'{base_url}/chat/completions', headers=headers, json=llm_request, timeout=180)
+        r.raise_for_status()
+        result = r.json()
+    except Exception as e:
+        debug['api_calls'][-1]['error'] = str(e)
+        return None, debug
+    return _finish_validation_pass(result, debug)
 @app.route('/api/generate', methods=['POST'])
 def generate_prompt():
     guard = _login_required()
