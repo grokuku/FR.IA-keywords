@@ -318,72 +318,467 @@ async function checkServerStatus(el) {
     }
 }
 
-// ── Paramètres ────────────────────────────────────────────────────────
+// ── Paramètres (modale a 4 onglets : Provider / Styles / Templates / Compte) ──
 
 function openSettings() {
     const cfg = getConfig();
+    const modal = friaOpenModal("", "", "720px");
+    // Cacher le titre par defaut
+    const titleSpan = modal.modal.querySelector("div:first-child span");
+    if (titleSpan) titleSpan.style.display = "none";
 
-    const content = document.createElement("div");
-
+    // Header custom
+    const header = document.createElement("div");
+    Object.assign(header.style, {
+        padding: "12px 16px", borderBottom: "1px solid #444", display: "flex",
+        alignItems: "center", justifyContent: "space-between",
+    });
     const title = document.createElement("h2");
     title.textContent = "⚙️ Paramètres FR.IA";
-    Object.assign(title.style, { margin: "0 0 16px", fontSize: "16px", color: "#fff" });
-    content.appendChild(title);
+    Object.assign(title.style, { margin: "0", fontSize: "15px", color: "#fff", fontWeight: "600" });
+    header.appendChild(title);
+    modal.modal.querySelector("div:first-child").appendChild(header);
+
+    // Tabs
+    const tabsBar = document.createElement("div");
+    Object.assign(tabsBar.style, {
+        display: "flex", borderBottom: "1px solid #444", background: "#1a1a1e",
+    });
+    const tabContent = document.createElement("div");
+    Object.assign(tabContent.style, { padding: "16px", overflowY: "auto", maxHeight: "calc(80vh - 100px)" });
+
+    modal.body.innerHTML = "";
+    modal.body.appendChild(tabsBar);
+    modal.body.appendChild(tabContent);
+
+    const tabs = [
+        { id: "providers", label: "Provider LLM", render: renderProvidersTab },
+        { id: "styles", label: "Styles", render: renderStylesTab },
+        { id: "templates", label: "Templates", render: renderTemplatesTab },
+        { id: "compte", label: "Compte", render: renderCompteTab },
+    ];
+    const activeTabs = new Set(["providers"]);
+
+    const renderTabsBar = () => {
+        tabsBar.innerHTML = "";
+        tabs.forEach(t => {
+            const btn = document.createElement("button");
+            btn.textContent = t.label;
+            const isActive = activeTabs.has(t.id);
+            Object.assign(btn.style, {
+                flex: "1", padding: "10px 12px", border: "none", cursor: "pointer",
+                background: "transparent", fontSize: "13px", fontWeight: isActive ? "600" : "400",
+                color: isActive ? "#fff" : "#888",
+                borderBottom: isActive ? "2px solid #6366f1" : "2px solid transparent",
+                transition: "all 0.15s",
+            });
+            btn.onclick = () => {
+                activeTabs.clear();
+                activeTabs.add(t.id);
+                renderTabsBar();
+                renderActiveTab();
+            };
+            tabsBar.appendChild(btn);
+        });
+    };
+
+    const renderActiveTab = async () => {
+        tabContent.innerHTML = "<p style='color:#888;font-size:12px;'>Chargement...</p>";
+        const t = tabs.find(x => activeTabs.has(x.id));
+        try {
+            await t.render(tabContent, cfg);
+        } catch (e) {
+            tabContent.innerHTML = `<p style='color:#f87171;font-size:12px;'>Erreur : ${e.message || e}</p>`;
+        }
+    };
+
+    renderTabsBar();
+    renderActiveTab();
+}
+
+// ── Helpers partages ──
+
+const _friaStyle = {
+    input: "width:100%; padding:6px 10px; border-radius:4px; border:1px solid #555; background:#1a1a1e; color:#fff; font-size:12px; box-sizing:border-box;",
+    label: "display:block; margin-bottom:3px; font-size:11px; color:#aaa;",
+    btn: (bg = "#6366f1") => `padding:6px 12px; border-radius:4px; border:none; background:${bg}; color:white; cursor:pointer; font-size:12px; font-weight:600;`,
+    btnSecondary: "padding:6px 12px; border-radius:4px; border:1px solid #555; background:transparent; color:#ccc; cursor:pointer; font-size:12px;",
+    section: "padding:12px; background:#1a1a1e; border:1px solid #333; border-radius:6px; margin-bottom:12px;",
+};
+
+async function _friaFetchApi(path, opts = {}) {
+    const cfg = getConfig();
+    const baseUrl = (cfg.serverUrl || "https://kw.holaf.fr").replace(/\/+$/, "");
+    const headers = { "Content-Type": "application/json" };
+    if (cfg.apiKey) headers["Authorization"] = `Bearer ${cfg.apiKey}`;
+    const resp = await fetch(`${baseUrl}/${path.replace(/^\//, "")}`, {
+        ...opts,
+        headers: { ...headers, ...(opts.headers || {}) },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    if (!resp.ok) {
+        const t = await resp.text().catch(() => "");
+        let msg = `HTTP ${resp.status}`;
+        try { const j = JSON.parse(t); if (j.error) msg = j.error; } catch {}
+        throw new Error(msg);
+    }
+    return resp.json().catch(() => ({}));
+}
+
+// ── Onglet Provider LLM ─────────────────────────────────────────────
+
+async function renderProvidersTab(container, cfg) {
+    container.innerHTML = "";
+
+    // Section : liste des presets existants
+    const listSection = document.createElement("div");
+    listSection.style.cssText = _friaStyle.section;
+    const listTitle = document.createElement("h3");
+    listTitle.textContent = "MES PRESETS";
+    Object.assign(listTitle.style, { margin: "0 0 8px", fontSize: "11px", color: "#888", fontWeight: "600" });
+    listSection.appendChild(listTitle);
+    container.appendChild(listSection);
+
+    async function reloadPresets() {
+        const presets = await _friaFetchApi("presets");
+        listSection.innerHTML = "";
+        const t = document.createElement("h3");
+        t.textContent = "MES PRESETS";
+        Object.assign(t.style, { margin: "0 0 8px", fontSize: "11px", color: "#888", fontWeight: "600" });
+        listSection.appendChild(t);
+        if (presets.length === 0) {
+            const empty = document.createElement("p");
+            empty.textContent = "Aucun preset. Créez-en un ci-dessous.";
+            Object.assign(empty.style, { color: "#888", fontSize: "12px", margin: "0" });
+            listSection.appendChild(empty);
+            return;
+        }
+        presets.forEach(p => {
+            const row = document.createElement("div");
+            Object.assign(row.style, {
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "6px 8px", borderBottom: "1px solid #2a2a2e", fontSize: "12px",
+            });
+            const left = document.createElement("div");
+            const scope = p.is_global ? "global" : (p.owner_name ? `(${p.owner_name})` : "personnel");
+            const clientBadge = p.is_client_side ? " <span style='color:#f59e0b;'>🖥️</span>" : "";
+            left.innerHTML = `<strong style='color:#fff;'>${p.name}</strong> <span style='color:#888;'>[${scope}]</span> ${clientBadge}<br><span style='color:#888;font-size:10px;'>${p.model} @ ${p.base_url}</span>`;
+            const actions = document.createElement("div");
+            Object.assign(actions.style, { display: "flex", gap: "4px" });
+            const editBtn = mkBtn("Edit", _friaStyle.btnSecondary, () => fillForm(p));
+            const dupBtn = mkBtn("Dup", _friaStyle.btnSecondary, async () => {
+                const body = { ...p };
+                delete body.id;
+                body.name = p.name + " (copie)";
+                try {
+                    await _friaFetchApi("presets", { method: "POST", body });
+                    reloadPresets();
+                } catch (e) { alert("Erreur duplication : " + e.message); }
+            });
+            const delBtn = mkBtn("Del", "padding:6px 12px;border-radius:4px;border:none;background:#7f1d1d;color:white;cursor:pointer;font-size:12px;", async () => {
+                if (!confirm("Supprimer " + p.name + " ?")) return;
+                try {
+                    await _friaFetchApi(`presets/${p.id}`, { method: "DELETE" });
+                    reloadPresets();
+                } catch (e) { alert("Erreur suppression : " + e.message); }
+            });
+            actions.append(editBtn, dupBtn, delBtn);
+            row.append(left, actions);
+            listSection.appendChild(row);
+        });
+    }
+    await reloadPresets();
+
+    // Section : formulaire create/edit
+    const form = document.createElement("div");
+    form.style.cssText = _friaStyle.section;
+
+    const editingId = { value: null };
+
+    const formTitle = document.createElement("h3");
+    formTitle.id = "fria-preset-form-title";
+    formTitle.textContent = "Nouveau preset";
+    Object.assign(formTitle.style, { margin: "0 0 10px", fontSize: "11px", color: "#888", fontWeight: "600" });
+    form.appendChild(formTitle);
+
+    const mkField = (label, type = "text", value = "", placeholder = "") => {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "margin-bottom:8px;";
+        const l = document.createElement("label");
+        l.textContent = label;
+        l.style.cssText = _friaStyle.label;
+        wrap.appendChild(l);
+        const input = document.createElement("input");
+        input.type = type;
+        input.value = value;
+        input.placeholder = placeholder;
+        input.style.cssText = _friaStyle.input;
+        wrap.appendChild(input);
+        return { wrap, input };
+    };
+
+    const fName = mkField("Nom du preset", "text", "", "");
+    form.appendChild(fName.wrap);
+
+    const fUrl = mkField("URL du serveur", "url", "", "http://localhost:11434/v1");
+    form.appendChild(fUrl.wrap);
+
+    const fKey = mkField("API Key (optionnel)", "password", "", "");
+    form.appendChild(fKey.wrap);
+
+    // Modele + bouton Lister
+    const modelRow = document.createElement("div");
+    modelRow.style.cssText = "display:flex; gap:6px; margin-bottom:8px; align-items:flex-end;";
+    const fModelWrap = document.createElement("div");
+    fModelWrap.style.cssText = "flex:1;";
+    const lblModel = document.createElement("label");
+    lblModel.textContent = "Modele";
+    lblModel.style.cssText = _friaStyle.label;
+    fModelWrap.appendChild(lblModel);
+    const fModel = document.createElement("input");
+    fModel.type = "text";
+    fModel.placeholder = "llama3";
+    fModel.style.cssText = _friaStyle.input;
+    fModelWrap.appendChild(fModel);
+    modelRow.appendChild(fModelWrap);
+
+    const listModelsBtn = mkBtn("Lister", "padding:6px 10px;border-radius:4px;border:1px solid #6366f1;background:transparent;color:#6366f1;cursor:pointer;font-size:11px;flex:0 0 auto;height:28px;");
+    listModelsBtn.onclick = async () => {
+        const url = fUrl.input.value.trim();
+        if (!url) { alert("Saisis l'URL d'abord"); return; }
+        try {
+            let models;
+            const isClient = fClientInput.checked;
+            if (isClient) {
+                // Appel direct navigateur → serveur LLM
+                const headers = { "Content-Type": "application/json" };
+                const k = fKey.input.value.trim();
+                if (k) headers["Authorization"] = "Bearer " + k;
+                const r = await fetch(url.replace(/\/+$/, "") + "/models", { headers });
+                if (!r.ok) throw new Error("HTTP " + r.status);
+                const data = await r.json();
+                const raw = (data && data.data) || (data && data.models) || [];
+                models = raw.map(m => typeof m === "string" ? { id: m } : { id: m.id || m.name || "" });
+            } else {
+                // Backend proxy
+                const resp = await _friaFetchApi("presets/list-models", {
+                    method: "POST",
+                    body: { base_url: url, api_key: fKey.input.value.trim() },
+                });
+                models = resp;
+            }
+            // Proposer un select inline pour choisir
+            const choice = prompt(
+                "Modèles trouves :\n" + models.map(m => "- " + m.id).join("\n") + "\n\nColle l'ID du modele desire :",
+                models[0]?.id || ""
+            );
+            if (choice) fModel.value = choice.trim();
+        } catch (e) {
+            alert("Erreur listage modeles : " + e.message);
+        }
+    };
+    modelRow.appendChild(listModelsBtn);
+    form.appendChild(modelRow);
+
+    // Checkboxes
+    const checks = document.createElement("div");
+    checks.style.cssText = "display:flex;gap:14px;margin-bottom:10px;";
+    const mkCheck = (label, initial = false) => {
+        const w = document.createElement("label");
+        w.style.cssText = "display:flex;align-items:center;gap:5px;font-size:12px;color:#ccc;cursor:pointer;";
+        const i = document.createElement("input");
+        i.type = "checkbox";
+        i.checked = initial;
+        w.appendChild(i);
+        w.appendChild(document.createTextNode(label));
+        return { wrap: w, input: i };
+    };
+    const fGlobal = mkCheck("Global (visible par tous)", false);
+    const fClient = mkCheck("Client-side", false);
+    const fClientInput = fClient.input;
+    checks.append(fGlobal.wrap, fClient.wrap);
+    form.appendChild(checks);
+
+    // Boutons
+    const btnRow = document.createElement("div");
+    btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;";
+    const cancelBtn = mkBtn("Annuler", _friaStyle.btnSecondary, () => {
+        editingId.value = null;
+        fName.input.value = ""; fUrl.input.value = ""; fKey.input.value = "";
+        fModel.value = ""; fGlobal.input.checked = false; fClientInput.checked = false;
+        formTitle.textContent = "Nouveau preset";
+    });
+    const saveBtn = mkBtn("Sauvegarder", _friaStyle.btn(), async () => {
+        const body = {
+            name: fName.input.value.trim(),
+            base_url: fUrl.input.value.trim(),
+            api_key: fKey.input.value.trim(),
+            model: fModel.value.trim(),
+            is_global: fGlobal.input.checked ? 1 : 0,
+            is_client_side: fClientInput.checked ? 1 : 0,
+        };
+        if (!body.name || !body.base_url || !body.model) {
+            alert("Nom, URL et modele sont requis"); return;
+        }
+        try {
+            if (editingId.value) {
+                await _friaFetchApi(`presets/${editingId.value}`, { method: "PUT", body });
+            } else {
+                await _friaFetchApi("presets", { method: "POST", body });
+            }
+            editingId.value = null;
+            formTitle.textContent = "Nouveau preset";
+            fName.input.value = ""; fUrl.input.value = ""; fKey.input.value = "";
+            fModel.value = ""; fGlobal.input.checked = false; fClientInput.checked = false;
+            reloadPresets();
+        } catch (e) {
+            alert("Erreur sauvegarde : " + e.message);
+        }
+    });
+    btnRow.append(cancelBtn, saveBtn);
+    form.appendChild(btnRow);
+    container.appendChild(form);
+
+    function fillForm(p) {
+        editingId.value = p.id;
+        fName.input.value = p.name || "";
+        fUrl.input.value = p.base_url || "";
+        fKey.input.value = ""; // On ne pré-remplit pas la clé pour la sécurité
+        fModel.value = p.model || "";
+        fGlobal.input.checked = !!p.is_global;
+        fClientInput.checked = !!p.is_client_side;
+        formTitle.textContent = "Modifier preset";
+    }
+}
+
+function mkBtn(text, css, onClick) {
+    const b = document.createElement("button");
+    b.textContent = text;
+    b.style.cssText = typeof css === "string" ? css : "";
+    b.onclick = onClick;
+    return b;
+}
+
+// ── Onglet Styles (lecture seule pour l'instant) ────────────────────
+
+async function renderStylesTab(container) {
+    container.innerHTML = "";
+    const listSection = document.createElement("div");
+    listSection.style.cssText = _friaStyle.section;
+    const t = document.createElement("h3");
+    t.textContent = "STYLES DISPONIBLES";
+    Object.assign(t.style, { margin: "0 0 8px", fontSize: "11px", color: "#888", fontWeight: "600" });
+    listSection.appendChild(t);
+    const hint = document.createElement("p");
+    hint.textContent = "Édition complète sur le site web → Paramètres → Styles.";
+    Object.assign(hint.style, { color: "#666", fontSize: "11px", margin: "0 0 10px" });
+    listSection.appendChild(hint);
+    container.appendChild(listSection);
+    try {
+        const styles = await _friaFetchApi("styles");
+        if (styles.length === 0) {
+            const empty = document.createElement("p");
+            empty.textContent = "Aucun style configuré.";
+            Object.assign(empty.style, { color: "#888", fontSize: "12px", margin: "0" });
+            listSection.appendChild(empty);
+            return;
+        }
+        styles.forEach(s => {
+            const row = document.createElement("div");
+            Object.assign(row.style, {
+                padding: "6px 8px", borderBottom: "1px solid #2a2a2e", fontSize: "12px",
+            });
+            const preview = (s.style_text || "").substring(0, 80);
+            row.innerHTML = `<strong style='color:#fff;'>${s.name}</strong> <span style='color:#888;'>[${s.is_global ? "global" : "personnel"}]</span><br><span style='color:#aaa;font-size:11px;'>${preview}${preview.length >= 80 ? "..." : ""}</span>`;
+            listSection.appendChild(row);
+        });
+    } catch (e) {
+        listSection.innerHTML += `<p style='color:#f87171;font-size:12px;'>Erreur : ${e.message}</p>`;
+    }
+}
+
+// ── Onglet Templates (lecture seule) ────────────────────────────────
+
+async function renderTemplatesTab(container) {
+    container.innerHTML = "";
+    const listSection = document.createElement("div");
+    listSection.style.cssText = _friaStyle.section;
+    const t = document.createElement("h3");
+    t.textContent = "TEMPLATES DE PROMPT";
+    Object.assign(t.style, { margin: "0 0 8px", fontSize: "11px", color: "#888", fontWeight: "600" });
+    listSection.appendChild(t);
+    const hint = document.createElement("p");
+    hint.textContent = "Liste des templates par défaut. Édition complète sur le site web (admin).";
+    Object.assign(hint.style, { color: "#666", fontSize: "11px", margin: "0 0 10px" });
+    listSection.appendChild(hint);
+    container.appendChild(listSection);
+    try {
+        // /api/prompts/templates/defaults retourne les templates par défaut
+        const templates = await _friaFetchApi("prompts/templates/defaults");
+        if (!Array.isArray(templates) || templates.length === 0) {
+            const empty = document.createElement("p");
+            empty.textContent = "Aucun template par défaut.";
+            Object.assign(empty.style, { color: "#888", fontSize: "12px", margin: "0" });
+            listSection.appendChild(empty);
+            return;
+        }
+        templates.forEach(tmpl => {
+            const row = document.createElement("div");
+            Object.assign(row.style, {
+                padding: "6px 8px", borderBottom: "1px solid #2a2a2e", fontSize: "12px",
+            });
+            const sysPreview = (tmpl.system_prompt || "").substring(0, 100);
+            row.innerHTML = `<strong style='color:#fff;'>${tmpl.prompt_type} / ${tmpl.output_format}</strong><br><span style='color:#aaa;font-size:11px;'>${sysPreview}${sysPreview.length >= 100 ? "..." : ""}</span>`;
+            listSection.appendChild(row);
+        });
+    } catch (e) {
+        listSection.innerHTML += `<p style='color:#f87171;font-size:12px;'>Erreur : ${e.message}</p>`;
+    }
+}
+
+// ── Onglet Compte (URL serveur + clé API) ───────────────────────────
+
+function renderCompteTab(container, cfg) {
+    container.innerHTML = "";
+    const section = document.createElement("div");
+    section.style.cssText = _friaStyle.section;
 
     const lbl1 = document.createElement("label");
     lbl1.textContent = "URL du serveur";
-    Object.assign(lbl1.style, { display: "block", marginBottom: "4px", fontSize: "12px", color: "#aaa" });
-    content.appendChild(lbl1);
+    lbl1.style.cssText = _friaStyle.label;
+    section.appendChild(lbl1);
 
     const inputUrl = document.createElement("input");
     inputUrl.type = "url";
     inputUrl.value = cfg.serverUrl || "https://kw.holaf.fr";
-    Object.assign(inputUrl.style, { width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #555", background: "#1a1a1e", color: "#fff", fontSize: "13px", marginBottom: "16px", boxSizing: "border-box" });
-    content.appendChild(inputUrl);
+    inputUrl.style.cssText = _friaStyle.input;
+    inputUrl.style.marginBottom = "12px";
+    section.appendChild(inputUrl);
 
     const lbl2 = document.createElement("label");
     lbl2.textContent = "Clé API";
-    Object.assign(lbl2.style, { display: "block", marginBottom: "4px", fontSize: "12px", color: "#aaa" });
-    content.appendChild(lbl2);
+    lbl2.style.cssText = _friaStyle.label;
+    section.appendChild(lbl2);
 
     const inputKey = document.createElement("input");
     inputKey.type = "password";
     inputKey.value = cfg.apiKey || "";
-    Object.assign(inputKey.style, { width: "100%", padding: "8px 12px", borderRadius: "6px", border: "1px solid #555", background: "#1a1a1e", color: "#fff", fontSize: "13px", marginBottom: "4px", boxSizing: "border-box" });
-    content.appendChild(inputKey);
+    inputKey.style.cssText = _friaStyle.input;
+    inputKey.style.marginBottom = "4px";
+    section.appendChild(inputKey);
 
     const hint = document.createElement("p");
     hint.textContent = "Générez votre clé sur le site web → Settings → Clé API";
-    Object.assign(hint.style, { margin: "0 0 16px", fontSize: "11px", color: "#888" });
-    content.appendChild(hint);
+    Object.assign(hint.style, { margin: "0 0 12px", fontSize: "11px", color: "#888" });
+    section.appendChild(hint);
 
-    const btnRow = document.createElement("div");
-    Object.assign(btnRow.style, { display: "flex", gap: "8px", justifyContent: "flex-end" });
-
-    const cancelBtn = document.createElement("button");
-    cancelBtn.textContent = "Annuler";
-    Object.assign(cancelBtn.style, { padding: "8px 16px", borderRadius: "6px", border: "1px solid #555", background: "transparent", color: "#ccc", cursor: "pointer", fontSize: "13px" });
-    btnRow.appendChild(cancelBtn);
-
-    const saveBtn = document.createElement("button");
-    saveBtn.textContent = "Sauvegarder";
-    Object.assign(saveBtn.style, { padding: "8px 16px", borderRadius: "6px", border: "none", background: "#6366f1", color: "white", cursor: "pointer", fontSize: "13px", fontWeight: "600" });
-    btnRow.appendChild(saveBtn);
-    content.appendChild(btnRow);
-
-    const modalRef = friaOpenModal("", content, "420px");
-    // Cacher le titre par défaut car on a notre propre h2
-    const titleSpan = modalRef.modal.querySelector("div:first-child span");
-    if (titleSpan) titleSpan.style.display = "none";
-
-    cancelBtn.onclick = () => modalRef.close();
-    saveBtn.onclick = () => {
-        setConfig({
-            serverUrl: inputUrl.value.trim(),
-            apiKey: inputKey.value.trim(),
-        });
-        modalRef.close();
-    };
+    const saveBtn = mkBtn("Sauvegarder", _friaStyle.btn(), () => {
+        setConfig({ serverUrl: inputUrl.value.trim(), apiKey: inputKey.value.trim() });
+        saveBtn.textContent = "✓ Sauvegardé";
+        setTimeout(() => { saveBtn.textContent = "Sauvegarder"; }, 1500);
+    });
+    section.appendChild(saveBtn);
+    container.appendChild(section);
 }
 
 // ── Update (git pull sur le repo local) ────────────────────────────
