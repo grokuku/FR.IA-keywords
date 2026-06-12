@@ -79,6 +79,12 @@
                     try {
                         const items = await apiGet(apiPath);
                         if (Array.isArray(items)) {
+                            // Stocker la liste des presets dans node._friaPresets pour
+                            // que saveApiConfig puisse lire is_client_side et base_url
+                            // du preset actuellement selectionne.
+                            if (apiPath === "presets") {
+                                try { node._friaPresets = items; } catch {}
+                            }
                             items.forEach(item => {
                                 const o = document.createElement("option");
                                 o.value = item.id;
@@ -225,11 +231,17 @@
                 function saveApiConfig() {
                     const a = node.widgets?.find(x => x.name === "_api_config");
                     if (!a) return;
+                    // Resoudre le preset selectionne pour pousser ses infos (mode client-side)
+                    const presetId = parseInt(presetSelect.value) || 0;
+                    const presetObj = (node._friaPresets || []).find(p => p.id === presetId);
                     a.value = JSON.stringify({
                         api_url: getApiUrl(),
                         api_key: getApiKey(),
-                        preset_id: parseInt(presetSelect.value) || 0,
+                        preset_id: presetId,
                         style_id: parseInt(styleSelect.value) || 0,
+                        // Champs pour le mode client-side (LLM local)
+                        is_client_side: presetObj ? (presetObj.is_client_side ? 1 : 0) : 0,
+                        preset_base_url: presetObj ? (presetObj.base_url || "") : "",
                     });
                 }
 

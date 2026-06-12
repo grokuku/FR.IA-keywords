@@ -95,19 +95,32 @@
                     set("prompt_type", typeSelect.value);
                     set("preset_id", parseInt(presetSelect.value) || 0);
                     set("style_id", parseInt(styleSelect.value) || 0);
+                    // Resoudre le preset selectionne pour pousser ses infos dans _api_config
+                    // (le node Python en a besoin pour faire la boucle multi-passes locale)
+                    const presetId = parseInt(presetSelect.value) || 0;
+                    const presetObj = (node._friaPresets || []).find(p => p.id === presetId);
                     const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (a) a.value = JSON.stringify({ api_url: getApiUrl(), api_key: getApiKey() });
+                    if (a) a.value = JSON.stringify({
+                        api_url: getApiUrl(),
+                        api_key: getApiKey(),
+                        // Champs pour le mode client-side (LLM local)
+                        is_client_side: presetObj ? (presetObj.is_client_side ? 1 : 0) : 0,
+                        preset_base_url: presetObj ? (presetObj.base_url || "") : "",
+                    });
                 }
 
                 // ---- Cache de rafraîchissement intelligent ----
                 const _cache = (window.__FRIA_cache = window.__FRIA_cache || { presets: 0, styles: 0 });
                 const CACHE_TTL = 15000; // 15 secondes
 
-                async function populateSelect(select, apiPath, labelKey, valKey, placeholder, onDone) {
+                async function populateSelect(select, apiPath, labelKey, valKey, placeholder, onDone, onItems) {
                     select.innerHTML = `<option value="0">${placeholder}</option>`;
                     try {
                         const items = await apiGet(apiPath);
                         if (Array.isArray(items)) {
+                            // Callback optionnel pour transmettre la liste brute
+                            // (utilise par syncEnhanceWidget pour lire is_client_side, base_url)
+                            try { onItems?.(items); } catch {}
                             items.forEach(item => {
                                 const o = document.createElement("option");
                                 o.value = item[valKey || "id"];
@@ -343,8 +356,11 @@
                 node._domWidget = domWidget;
 
                 // ---- Peupler les dropdowns depuis l'API ----
+                // Pour les presets, on garde la liste brute dans node._friaPresets pour
+                // que syncEnhanceWidget puisse lire is_client_side et base_url du preset selectionne.
                 populateSelect(presetSelect, "presets", "name", "id", "-- Preset IA --",
-                    () => restoreFromWidgets(node));
+                    () => restoreFromWidgets(node),
+                    (items) => { node._friaPresets = items; });
                 populateSelect(styleSelect, "styles", "name", "id", "-- Style --",
                     () => restoreFromWidgets(node));
 

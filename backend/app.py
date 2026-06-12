@@ -2354,7 +2354,14 @@ def enhance_prompt():
         if result_box['error']:
             yield json.dumps({'status': 'error', 'error': result_box['error']}) + '\n'
         else:
-            yield json.dumps({'status': 'done', **result_box['value']}) + '\n'
+            val = result_box['value']
+            # Cas special : _do_enhance a capture une erreur (ex: 429, LLM injoignable)
+            # et l'a retournee comme dict {'_status': N, 'error': '...'} (sans jsonify
+            # car on est dans un Thread sans contexte Flask).
+            if isinstance(val, dict) and '_status' in val and 'error' in val:
+                yield json.dumps({'status': 'error', 'error': val['error']}) + '\n'
+            else:
+                yield json.dumps({'status': 'done', **val}) + '\n'
 
     return Response(generate(), mimetype='application/x-ndjson')
 
@@ -2603,11 +2610,14 @@ def _do_enhance(user_id, data):
         msg = str(e)
         import logging
         logging.warning(f"[enhance] LLM EXCEPTION: {msg!r}")
+        # IMPORTANT : _do_enhance tourne dans un Thread sans contexte Flask actif.
+        # On retourne des DICTS purs (pas jsonify). C'est le generator de /api/enhance
+        # qui serialise en ndjson.
         if '429' in msg:
-            return jsonify({'error': 'Rate limit atteint sur le serveur LLM. Attends un peu et reessaye.'}), 429
+            return {'_status': 429, 'error': 'Rate limit atteint sur le serveur LLM. Attends un peu et reessaye.'}
         if 'connect' in msg.lower() or 'refused' in msg.lower():
-            return jsonify({'error': f'Serveur LLM inaccessible : verifie l\'URL ({prepared["llm_config"]["base_url"]})'}), 502
-        return jsonify({'error': f'Erreur LLM: {msg}'}), 502
+            return {'_status': 502, 'error': f'Serveur LLM inaccessible : verifie l\'URL ({prepared["llm_config"]["base_url"]})'}
+        return {'_status': 502, 'error': f'Erreur LLM: {msg}'}
     # Post-traitement passe 1 (toujours commun cloud/local)
     pass1_result = _finish_enhance_pass1(user_id, prepared, llm_response)
     # Passes de validation en mode cloud : le backend les fait toutes en interne
