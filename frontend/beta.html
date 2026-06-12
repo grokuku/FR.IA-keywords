@@ -2209,6 +2209,101 @@
 
     // -- Enhance --
 
+    /**
+     * Appelle /api/enhance en mode client-side (LLM local).
+     * Boucle multi-passes : pour chaque passe (1, 2, 3), on fait l'appel
+     * Ollama local et on appelle /api/enhance/finish. Le backend peut
+     * retourner awaiting_validation si une autre passe est necessaire.
+     *
+     * params: { text, preset_id, prompt_type, style_id, style_text,
+     *           ep_elements, random_count, base_url, onProgress }
+     * Retourne: { output, negative_prompt, model_used, debug_md }
+     */
+    async function callEnhanceLocalLLM(params) {
+      var baseUrl = (params.base_url || '').replace(/\/+$/, '');
+      if (!baseUrl) throw { error: 'URL du LLM local manquante' };
+
+      // 1) /api/enhance/prepare : le backend construit le payload LLM passe 1
+      if (params.onProgress) params.onProgress('Preparation du prompt (backend)...');
+      var prepareBody = {
+        text: params.text,
+        preset_id: params.preset_id,
+        prompt_type: params.prompt_type,
+        style_id: params.style_id,
+        style_text: params.style_text,
+        ep_elements: params.ep_elements || [],
+        random_count: params.random_count || 0
+      };
+      var prepareRes = await fetch(API + '/enhance/prepare', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(prepareBody)
+      });
+      if (!prepareRes.ok) {
+        var err = await safeJson(prepareRes);
+        throw { error: (err && err.error) || ('HTTP ' + prepareRes.status) };
+      }
+      var prep = await prepareRes.json();
+
+      // 2) Boucle multi-passes
+      var pass = 1;
+      while (true) {
+        if (params.onProgress) {
+          if (pass === 1) params.onProgress('Appel LLM local (passe 1)...');
+          else params.onProgress('Validation LLM local (passe ' + pass + ')...');
+        }
+        // Appel direct a Ollama local (ou tout LLM OpenAI-compatible)
+        var llmUrl = baseUrl + '/chat/completions';
+        var llmHeaders = {'Content-Type': 'application/json'};
+        var llmRes = await fetch(llmUrl, {
+          method: 'POST',
+          headers: llmHeaders,
+          body: JSON.stringify(prep.llm_request)
+        });
+        if (!llmRes.ok) {
+          var errText = await llmRes.text().catch(function(){ return ''; });
+          throw { error: 'LLM local erreur ' + llmRes.status + (errText ? ': ' + errText.substring(0, 200) : ' — verifie que CORS est active sur le serveur LLM') };
+        }
+        var llmResponse = await llmRes.json();
+
+        // 3) /api/enhance/finish : le backend fait le post-traitement
+        if (params.onProgress) params.onProgress('Post-traitement (backend)...');
+        var finishRes = await fetch(API + '/enhance/finish', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            session_id: prep.session_id,
+            llm_response: llmResponse,
+            pass: pass
+          })
+        });
+        if (!finishRes.ok) {
+          var ferr = await safeJson(finishRes);
+          throw { error: (ferr && ferr.error) || ('HTTP ' + finishRes.status) };
+        }
+        var fin = await finishRes.json();
+
+        // 4) Statut
+        if (fin.status === 'done') {
+          if (params.onProgress) params.onProgress('Terminé !');
+          return {
+            output: fin.output,
+            negative_prompt: fin.negative_prompt,
+            model_used: fin.model_used,
+            debug_md: fin.debug_md
+          };
+        }
+        if (fin.status === 'awaiting_validation') {
+          // Le backend veut une autre passe : reboucle avec le nouveau llm_request
+          prep.llm_request = fin.llm_request;
+          pass = fin.pass;
+          continue;
+        }
+        // Statut inconnu
+        throw { error: 'Statut inattendu du backend: ' + fin.status };
+      }
+    }
+
     async function doEnhance() {
       var text = document.getElementById('enhance-input').value.trim();
       var presetId = document.getElementById('enhance-preset').value;
@@ -2280,28 +2375,22 @@
       try {
         var data;
         if (isClientSide && csUrl) {
-          // Appel direct depuis le navigateur
-          statusEl.textContent = 'Appel client-side...';
-          var mergedText = text;
-          if (epItems.length > 0) mergedText += '\n---\nElements Picker: ' + JSON.stringify(epItems);
-          var llmRes = await fetch(csUrl.replace(/\/+$/, '') + '/chat/completions', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-              model: csModel || 'llama3',
-              messages: [
-                {role: 'system', content: 'Transforme ce texte en prompt ' + promptType + ' optimise. ' + (styleText || '') + ' Reponds UNIQUEMENT avec le prompt final.'},
-                {role: 'user', content: mergedText}
-              ],
-              temperature: 0.7, max_tokens: 1024
-            })
+          // ── Mode client-side (LLM local) : boucle multi-passes ──────────
+          // On utilise /api/enhance/prepare (construit le payload LLM cote backend
+          // avec tous les templates/system_prompt/exemples), puis on fait les appels
+          // Ollama local directement depuis le navigateur, puis /api/enhance/finish
+          // orchestre les passes de validation.
+          data = await callEnhanceLocalLLM({
+            text: text,
+            preset_id: presetId ? parseInt(presetId) : null,
+            prompt_type: promptType,
+            style_id: styleId ? parseInt(styleId) : null,
+            style_text: styleText,
+            ep_elements: epItems,
+            random_count: useRandom ? randomCount : 0,
+            base_url: csUrl,
+            onProgress: function(msg) { statusEl.textContent = msg; }
           });
-          if (!llmRes.ok) {
-            var errText = await llmRes.text().catch(function(){ return ''; });
-            throw {error: 'LLM local erreur ' + llmRes.status + (errText ? ': ' + errText.substring(0,100) : ' — verifie que CORS est active sur le serveur LLM')};
-          }
-          var llmData = await llmRes.json();
-          data = {output: llmData.choices[0].message.content.trim()};
         } else {
           // Appel via backend (streaming ndjson : keepalive + result final)
           var body = {
