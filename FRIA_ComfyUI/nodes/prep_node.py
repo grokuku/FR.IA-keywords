@@ -2,7 +2,7 @@
 FR.IA Prompt Prep Node — Prépare les prompts (system + user) pour n'importe quel LLM.
 
 Au lieu d'appeler un LLM en interne, ce node fait un seul appel léger au
-backend FR.IA (`/api/enhance/prompts`) qui retourne les 3 chaînes prêtes :
+backend FR.IA (`/api/enhance/prompts`) qui retourne les chaînes prêtes :
 
   - llm_prompt     : le prompt utilisateur fusionné (à brancher sur l'entrée
                      `prompt` du node LLM)
@@ -11,16 +11,15 @@ backend FR.IA (`/api/enhance/prompts`) qui retourne les 3 chaînes prêtes :
   - neg_prompt     : le negative prompt du style (à brancher sur KSampler
                      CLIP Text Encode négatif)
 
+Le preset IA est résolu côté backend (premier preset global disponible
+par défaut, configurable via le DOM widget plus tard si besoin).
 L'utilisateur branche ensuite n'importe quel node LLM (LM Studio, Ollama,
 llama.cpp, OpenAI, etc.) entre ce Prep et le reste du workflow. Il a ainsi
 le contrôle total sur la VRAM et le moteur d'inférence.
 
-Entrées (identiques à FRIAEnhanceNode) :
+Entrées :
   - seed (INT)
   - base_prompt (STRING multiligne)
-  - prompt_type (COMBO)
-  - preset_id (INT)
-  - style_id (INT)
   - special_instructions (STRING)
   - elements (STRING, optionnel) — JSON du Elements Picker
   - _api_config (STRING, hidden) — JSON interne piloté par le DOM widget
@@ -46,11 +45,9 @@ class FRIAPromptPrepNode:
             "required": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "base_prompt": ("STRING", {"multiline": True, "default": ""}),
-                "prompt_type": (["sdxl", "sd15", "flux", "anima", "qwen", "liste"], {"default": "sdxl"}),
-                "preset_id": ("INT", {"default": 0, "min": 0}),
-                "style_id": ("INT", {"default": 0, "min": 0}),
                 "special_instructions": ("STRING", {"default": ""}),
-                # Cache technique (api_url + api_key), caché visuellement par le DOM widget.
+                # Cache technique (api_url + api_key + prompt_type + style_id),
+                # caché visuellement par le DOM widget.
                 # La socket d'entrée est supprimée côté JS via node.removeInput().
                 "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             },
@@ -63,8 +60,7 @@ class FRIAPromptPrepNode:
     RETURN_TYPES = ("STRING", "STRING", "STRING")
     RETURN_NAMES = ("llm_prompt", "system_prompt", "neg_prompt")
 
-    def prepare(self, seed=0, base_prompt="", prompt_type="sdxl",
-                preset_id=0, style_id=0, special_instructions="",
+    def prepare(self, seed=0, base_prompt="", special_instructions="",
                 elements="[]", _api_config="{}"):
         try:
             api_cfg = json.loads(_api_config) if _api_config else {}
@@ -73,6 +69,8 @@ class FRIAPromptPrepNode:
 
         api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
         api_key = api_cfg.get("api_key", "")
+        prompt_type = api_cfg.get("prompt_type", "sdxl")
+        style_id = int(api_cfg.get("style_id", 0) or 0)
 
         # Parser elements : soit un tableau direct, soit l'objet _elements_json complet
         elems = []
@@ -109,7 +107,6 @@ class FRIAPromptPrepNode:
             "text": combined_text,
             "seed": seed if seed > 0 else None,
             "prompt_type": prompt_type,
-            "preset_id": preset_id if preset_id > 0 else None,
             "style_id": style_id if style_id > 0 else None,
             "special_instructions": special_instructions,
         }
@@ -131,7 +128,8 @@ class FRIAPromptPrepNode:
             neg_prompt = data.get("neg_prompt", "")
 
             logging.warning(
-                f"[FR.IA Prep] preset_id={preset_id} model='{data.get('model', '?')}' "
+                f"[FR.IA Prep] prompt_type={prompt_type} style_id={style_id} "
+                f"model='{data.get('model', '?')}' "
                 f"sys_len={len(system_prompt)} user_len={len(llm_prompt)} neg_len={len(neg_prompt)}"
             )
 

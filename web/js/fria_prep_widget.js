@@ -6,15 +6,18 @@
  *   - Il sort 3 strings (llm_prompt, system_prompt, neg_prompt)
  *   - L'utilisateur branche son propre node LLM (LM Studio, Ollama, etc.)
  *
- * DOM widget simplifié :
- *   - 1 selecteur de Style (visuel, pratique)
- *   - 1 bouton "↻" pour rafraichir la liste des styles
+ * DOM widget : grille 2 colonnes
+ *   - Type (gauche) : valeurs fixes SDXL / SD1.5 / Flux / Anima / Qwen / Liste
+ *   - Style (droite) : peuplé depuis /api/styles
  *   - Pas de bouton "Test enhance" (n'a plus de sens)
  *   - Pas de textarea de résultat (les sorties sont sur les sockets)
- *   - Pas de dropdown "Preset IA" (saisie directe dans le widget INT natif)
+ *   - Pas de dropdown "Preset IA" (pas de preset_id dans ce node)
  *
  * Les widgets natifs ComfyUI (seed, base_prompt, special_instructions,
- * elements, etc.) restent visibles au-dessus/dessous de ce DOM widget.
+ * elements) restent visibles au-dessus/dessous de ce DOM widget.
+ *
+ * Le state (prompt_type + style_id + api_url + api_key) est stocké dans
+ * _api_config (widget STRING caché, socket d'entrée supprimée).
  */
 (function waitForApp() {
     const app = window.app || window.comfyAPI?.app?.app;
@@ -30,11 +33,7 @@
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Cacher les widgets pilotés par le DOM ----
-                // style_id, _api_config : pilotés par le DOM, leur widget est
-                // caché et leur socket d'entrée est supprimée.
-                // prompt_type, preset_id : restent visibles comme widgets natifs
-                // (saisie directe en INT ou en COMBO natif ComfyUI).
+                // ---- Cacher le widget _api_config (piloté par le DOM) ----
                 const hideWidget = (n, name) => {
                     const w = n.widgets?.find(x => x.name === name);
                     if (w) {
@@ -44,12 +43,11 @@
                         if (w.parentEl) w.parentEl.style.display = "none";
                     }
                 };
+                hideWidget(node, "_api_config");
 
-                ["style_id", "_api_config"].forEach(n => hideWidget(node, n));
-
-                // ---- Supprimer les sockets d'entrée purement techniques ----
-                for (const inputName of ["style_id", "_api_config"]) {
-                    const slot = node.findInputSlot?.(inputName);
+                // ---- Supprimer la socket d'entrée de _api_config ----
+                {
+                    const slot = node.findInputSlot?.("_api_config");
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
                     }
@@ -81,18 +79,15 @@
                     return resp.json().catch(() => []);
                 };
 
-                // ---- Sync widget style_id + _api_config ----
+                // ---- Sync _api_config (api_url + api_key + prompt_type + style_id) ----
                 function syncPrepWidget() {
-                    const set = (name, val) => {
-                        const w = node.widgets?.find(x => x.name === name);
-                        if (w) w.value = val;
-                    };
-                    set("style_id", parseInt(styleSelect.value) || 0);
-                    // Pousser api_url + api_key dans _api_config (le node en a besoin)
                     const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (a) a.value = JSON.stringify({
+                    if (!a) return;
+                    a.value = JSON.stringify({
                         api_url: getApiUrl(),
                         api_key: getApiKey(),
+                        prompt_type: typeSelect.value,
+                        style_id: parseInt(styleSelect.value) || 0,
                     });
                 }
 
@@ -126,7 +121,7 @@
                     }
                 }
 
-                // ---- Container (1 ligne : selecteur style) ----
+                // ---- Container (flex column) ----
                 const container = document.createElement("div");
                 Object.assign(container.style, {
                     width: "100%", padding: "8px", boxSizing: "border-box",
@@ -142,21 +137,44 @@
                     return l;
                 };
 
-                // ---- Ligne unique : sélecteur de style ----
-                const styleRow = document.createElement("div");
-                Object.assign(styleRow.style, {
-                    display: "flex", gap: "4px", alignItems: "center",
+                // ---- Grille 2 colonnes (Type + Style) ----
+                const grid = document.createElement("div");
+                Object.assign(grid.style, {
+                    display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px",
                 });
 
-                const styleSelect = document.createElement("select");
-                Object.assign(styleSelect.style, {
+                const selectStyle = {
                     width: "100%", padding: "3px 6px", borderRadius: "4px",
                     border: "1px solid #555", background: "#3a3a3e",
-                    color: "#ccc", fontSize: "11px", cursor: "pointer", flex: "1",
-                });
-                styleSelect.onchange = syncPrepWidget;
-                styleSelect.addEventListener("mousedown", refreshStylesIfStale);
+                    color: "#ccc", fontSize: "11px", cursor: "pointer",
+                };
 
+                // Type (gauche) — valeurs fixes comme sur le site
+                const typeDiv = document.createElement("div");
+                const typeSelect = document.createElement("select");
+                Object.assign(typeSelect.style, selectStyle);
+                ["SDXL", "SD1.5", "Flux", "Anima", "Qwen", "Liste"].forEach(v => {
+                    const o = document.createElement("option");
+                    o.value = v.toLowerCase();
+                    o.textContent = v;
+                    typeSelect.appendChild(o);
+                });
+                typeSelect.value = "sdxl";
+                typeSelect.onchange = syncPrepWidget;
+                typeDiv.appendChild(mkLabel("Type"));
+                typeDiv.appendChild(typeSelect);
+                grid.appendChild(typeDiv);
+
+                // Style (droite) — peuplé depuis /api/styles
+                const styleDiv = document.createElement("div");
+                const styleRow = document.createElement("div");
+                Object.assign(styleRow.style, { display: "flex", gap: "4px", alignItems: "center" });
+                const styleSelect = document.createElement("select");
+                Object.assign(styleSelect.style, selectStyle);
+                styleSelect.style.flex = "1";
+                styleSelect.onchange = syncPrepWidget;
+                styleSelect.dataset.filled = "false";
+                styleSelect.addEventListener("mousedown", refreshStylesIfStale);
                 const styleRefreshBtn = document.createElement("button");
                 styleRefreshBtn.textContent = "↻";
                 Object.assign(styleRefreshBtn.style, {
@@ -166,17 +184,18 @@
                 });
                 styleRefreshBtn.title = "Rafraîchir la liste des styles";
                 styleRefreshBtn.onclick = () => { _cache.styles = 0; refreshStylesIfStale(); };
-
-                const styleLabel = mkLabel("Style");
-                container.appendChild(styleLabel);
+                styleDiv.appendChild(mkLabel("Style"));
                 styleRow.appendChild(styleSelect);
                 styleRow.appendChild(styleRefreshBtn);
-                container.appendChild(styleRow);
+                styleDiv.appendChild(styleRow);
+                grid.appendChild(styleDiv);
+
+                container.appendChild(grid);
 
                 // Mini-explication pour l'utilisateur
                 const help = document.createElement("div");
                 help.style.cssText = "font-size:10px;color:#777;margin-top:4px;line-height:1.4;";
-                help.innerHTML = "Sort 3 strings : <b>llm_prompt</b>, <b>system_prompt</b>, <b>neg_prompt</b>.<br>Branchez votre node LLM préféré sur les 2 premiers.";
+                help.innerHTML = "Sort 3 strings : <b>llm_prompt</b>, <b>system_prompt</b>, <b>neg_prompt</b>.<br>Branchez votre node LLM sur les 2 premiers.";
                 container.appendChild(help);
 
                 // ---- Ajout au node ----
@@ -184,7 +203,7 @@
                     serialize: false,
                     hideOnZoom: false,
                 });
-                widget.computeSize = () => [node.size[0] - 20, 110];
+                widget.computeSize = () => [node.size[0] - 20, 95];
 
                 // ---- Initialisation ----
                 populateStyleSelect().then(() => syncPrepWidget());
@@ -193,7 +212,7 @@
                 const onResize = node.onResize;
                 node.onResize = function (size) {
                     const r = onResize?.apply(this, arguments);
-                    widget.computeSize = () => [size[0] - 20, 110];
+                    widget.computeSize = () => [size[0] - 20, 95];
                     return r;
                 };
 
