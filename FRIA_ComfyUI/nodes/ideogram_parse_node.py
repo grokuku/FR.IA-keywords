@@ -1,21 +1,22 @@
 """
-FR.IA Ideogram Parse Node — Parse la réponse LLM (passe 1 ou 2) pour Ideogram 4.
+FR.IA Ideogram Parse Node — Parse la réponse LLM pour Ideogram 4.
 
 Reçoit en entrée :
   - llm_response (STRING) : la string brute sortie par le LLM
   - context (STRING)      : JSON bundle retourné par /api/ideogram/prep
-  - width (INT), height (INT) : dimensions pour le preview
-  - pass_number (INT, défaut=1) : quelle passe on parse
+                            (contient original_input, width, height, style_text, model)
+  - _api_config (STRING, hidden) : JSON interne piloté par le DOM widget
 
 Fait :
   1. Appelle /api/ideogram/parse qui extrait le JSON, le valide, convertit
-     les bboxes pixels -> 0-1000, et (si pass=1) construit le validation_prompt
+     les bboxes pixels -> 0-1000, et construit le validation_prompt
+     (toujours, c'est instantané)
   2. Rend le preview visuel des bboxes (côté local avec PIL)
 
 Sorties :
   - prompt (STRING) : JSON propre (bboxes en 0-1000)
-  - validation_prompt (STRING) : prompt de validation pour passe 2 (vide si pass=2)
-  - validation_system (STRING) : system prompt pour passe 2 (vide si pass=2)
+  - validation_prompt (STRING) : prompt à envoyer au LLM pour passe 2 (optionnel)
+  - validation_system (STRING) : system prompt pour passe 2 (optionnel)
   - preview (IMAGE) : rendu visuel des bboxes
   - debug (STRING) : debug markdown
 """
@@ -35,46 +36,35 @@ class FRIAIdeogramParseNode:
             "required": {
                 "llm_response": ("STRING", {"forceInput": True, "multiline": True, "default": ""}),
                 "context": ("STRING", {"forceInput": True, "multiline": True, "default": "{}"}),
-                "width": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
-                "height": ("INT", {"default": 1024, "min": 64, "max": 4096, "step": 64}),
-                "pass_number": ("INT", {"default": 1, "min": 1, "max": 2}),
+                # Cache technique (api_url + api_key), caché visuellement par
+                # le DOM widget. La socket d'entrée est supprimée côté JS.
+                "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             },
         }
 
     RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING")
     RETURN_NAMES = ("prompt", "validation_prompt", "validation_system", "preview", "debug")
 
-    def parse(self, llm_response, context, width, height, pass_number):
-        # Lire api_url/api_key depuis localStorage côté JS et les passer via
-        # _api_config. Mais ici on n'a pas _api_config widget, on le récupère
-        # depuis localStorage côté Python n'est pas possible.
-        # Solution : on ajoute _api_config comme widget hidden, qui est sync
-        # par le DOM widget (ou on le dérive du context).
-        # Pour l'instant, on le dérive du context JSON qui contient le model.
+    def parse(self, llm_response, context, _api_config="{}"):
+        try:
+            api_cfg = json.loads(_api_config) if _api_config else {}
+        except json.JSONDecodeError:
+            api_cfg = {}
+
+        api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
+        api_key = api_cfg.get("api_key", "")
+
+        # Lire width/height du context (source de verite depuis la Prep)
         try:
             ctx = json.loads(context) if isinstance(context, str) else context
         except json.JSONDecodeError:
             ctx = {}
-
-        # L'api_url doit être passé via un widget caché _api_config qu'on
-        # ajoute au node. On l'infère du context sinon fallback.
-        # (Voir widget JS qui remplit _api_config depuis localStorage.)
-        api_url = "https://kw.holaf.fr/api"
-        api_key = ""
-        # On tente de lire _api_config via les widgets du node
-        # (sera fourni par le DOM widget)
-        # Note : on ne peut pas accéder aux widgets ici, mais on peut
-        # passer api_url/api_key via des entrées hidden.
-        # Workaround : on les lit depuis le context si présents
-        api_url = ctx.get("api_url", api_url)
-        api_key = ctx.get("api_key", api_key)
+        width = int(ctx.get("width") or 0)
+        height = int(ctx.get("height") or 0)
 
         payload = {
             "llm_response": llm_response,
             "context": context,
-            "width": width,
-            "height": height,
-            "pass_number": pass_number,
         }
 
         headers = {"Content-Type": "application/json"}
@@ -96,11 +86,10 @@ class FRIAIdeogramParseNode:
             debug = data.get("debug", "")
 
             logging.warning(
-                f"[FR.IA Ideogram Parse] pass={pass_number} is_valid={is_valid} "
+                f"[FR.IA Ideogram Parse] is_valid={is_valid} "
                 f"prompt_len={len(prompt_out)} val_prompt_len={len(validation_prompt)}"
             )
 
-            # Preview local avec PIL (rendu des bboxes)
             preview_tensor = _render_preview(prompt_out, width, height, is_valid, error_msg)
 
             return {
@@ -155,7 +144,6 @@ def _render_preview(prompt_text, width, height, is_valid=True, error_msg=""):
             caption = None
 
     if not caption:
-        # Afficher un message d'erreur
         try:
             font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", max(16, width // 40))
         except Exception:
@@ -194,7 +182,6 @@ def _render_preview(prompt_text, width, height, is_valid=True, error_msg=""):
             bbox_coords.append(None)
             continue
         yMin, xMin, yMax, xMax = bbox
-        # Dénormaliser 0-1000 -> pixels
         x = int(xMin / 1000 * width)
         y = int(yMin / 1000 * height)
         bw = int((xMax - xMin) / 1000 * width)
@@ -205,7 +192,7 @@ def _render_preview(prompt_text, width, height, is_valid=True, error_msg=""):
         bbox_coords.append((x, y, bw, bh, idx))
 
     # PASSE 1 : fills (opaques, blendes avec le fond gris)
-    alpha_fill = 80  # 0-255
+    alpha_fill = 80
     for coords in bbox_coords:
         if coords is None:
             continue
@@ -218,7 +205,7 @@ def _render_preview(prompt_text, width, height, is_valid=True, error_msg=""):
         )
         draw.rectangle([x, y, x + bw, y + bh], fill=fill)
 
-    # PASSE 2 : outlines + text (toujours par dessus)
+    # PASSE 2 : outlines + text
     for coords in bbox_coords:
         if coords is None:
             continue
@@ -293,5 +280,5 @@ def _to_comfy_image(pil_img):
 def _empty_image(width, height):
     import torch
     from PIL import Image
-    img = Image.new("RGB", (width, height), (42, 42, 46))
+    img = Image.new("RGB", (width or 512, height or 512), (42, 42, 46))
     return _to_comfy_image(img)

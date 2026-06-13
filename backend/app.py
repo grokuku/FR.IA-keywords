@@ -3685,14 +3685,11 @@ def ideogram_prep():
             llm_prompt = m.get('content', '')
 
     # Context : tout ce qu'il faut pour construire le prompt de validation
-    # en passe 2. width/height sont pris depuis le payload (pas depuis
-    # l'image, on est decouple de ComfyUI). api_url/api_key sont envoyes
-    # par la node Prep dans le payload pour que la Parse node puisse
-    # rappeler /api/ideogram/parse sans avoir a les re-lire depuis
-    # localStorage.
+    # en passe 2. width/height/style_text viennent du payload Prep.
+    # NB : on ne met PAS api_url/api_key ici pour eviter de fuiter la cle
+    # API quand l'user exporte son workflow. La Parse node a son propre
+    # widget _api_config cache, sync avec localStorage.
     context = json.dumps({
-        'api_url': data.get('api_url', 'https://kw.holaf.fr/api'),
-        'api_key': data.get('api_key', ''),
         'original_input': prepared.get('merged_text', ''),
         'width': int(data.get('width') or 0),
         'height': int(data.get('height') or 0),
@@ -3716,21 +3713,23 @@ def ideogram_prep():
 @app.route('/api/ideogram/parse', methods=['POST'])
 def ideogram_parse():
     """
-    Parse decouple pour Ideogram 4 (passe 1 ou 2).
+    Parse decouple pour Ideogram 4.
 
-    Reçoit {llm_response, context, width, height, pass_number} :
+    Reçoit {llm_response, context} :
       - llm_response : la string brute sortie par le LLM
       - context      : le JSON bundle retourne par /api/ideogram/prep
-      - width/height : dimensions de l'image cible (pour conversion bboxes)
-      - pass_number  : 1 ou 2
+                      (contient original_input, width, height, style_text, model)
 
     Retourne :
-      - prompt              : JSON propre (bboxes en 0-1000) ou message d'erreur
-      - validation_prompt   : prompt de validation pour passe 2 (vide si pass=2)
-      - validation_system   : system prompt pour passe 2 (vide si pass=2)
-      - debug               : markdown de debug
-      - is_valid_json       : True si le LLM a sorti du JSON valide
-      - error               : message d'erreur si pas du JSON valide
+      - prompt            : JSON propre (bboxes en 0-1000) ou message d'erreur
+      - validation_prompt : prompt de validation pour passe 2 (toujours construit)
+      - validation_system : system prompt pour passe 2 (toujours construit)
+      - debug             : markdown de debug
+      - is_valid_json     : True si le LLM a sorti du JSON valide
+      - error             : message d'erreur si pas du JSON valide
+
+    Le user decide d'utiliser ou pas le validation_prompt selon son branchement.
+    Le construire systematiquement ne coute rien et simplifie l'API.
     """
     import logging
     import re as _re
@@ -3742,15 +3741,15 @@ def ideogram_parse():
 
     llm_response_raw = (data.get('llm_response') or '').strip()
     context_str = data.get('context') or '{}'
-    width = int(data.get('width') or 0)
-    height = int(data.get('height') or 0)
-    pass_number = int(data.get('pass_number') or 1)
 
-    # 1) Parser le context
+    # 1) Parser le context (source de verite pour width/height)
     try:
         ctx = json.loads(context_str) if isinstance(context_str, str) else context_str
     except json.JSONDecodeError:
         ctx = {}
+
+    width = int(ctx.get('width') or 0)
+    height = int(ctx.get('height') or 0)
 
     # 2) Extraire le JSON du LLM response
     s = llm_response_raw
@@ -3771,12 +3770,8 @@ def ideogram_parse():
     # 3) Si valide, convertir les bboxes pixels -> 0-1000
     prompt_out = llm_response_raw  # fallback : la string brute
     if is_valid and width and height:
-        # Re-serialiser le JSON converti (utilise la fonction existante)
         converted = convert_bboxes_to_normalized(s, width, height)
-        # convert_bboxes_to_normalized retourne soit la string d'origine,
-        # soit un objet — on normalise en string
         if isinstance(converted, str):
-            # Tenter de re-parser pour voir si elle a ete modifiee
             try:
                 json.loads(converted)
                 prompt_out = converted
@@ -3785,11 +3780,11 @@ def ideogram_parse():
         else:
             prompt_out = json.dumps(converted, ensure_ascii=False, indent=2)
 
-    # 4) Si pass=1, construire le validation_prompt
+    # 4) Construire le validation_prompt (toujours, c'est instantane)
+    #    Le user decide de l'utiliser ou pas selon son branchement.
     validation_prompt = ''
     validation_system = ''
-    if pass_number == 1 and is_valid and ctx:
-        # Reproduire la logique de _prepare_validation_pass
+    if is_valid and ctx:
         elements = (parsed.get('compositional_deconstruction') or {}).get('elements') or []
         element_list = []
         for i, el in enumerate(elements):
@@ -3800,13 +3795,10 @@ def ideogram_parse():
 
         original_input = ctx.get('original_input', '')
         style_text = ctx.get('style_text', '')
-        ctx_w = int(ctx.get('width') or width)
-        ctx_h = int(ctx.get('height') or height)
-        model_name = ctx.get('model', '')
 
         from math import gcd
-        g = gcd(ctx_w, ctx_h) if ctx_w and ctx_h else 1
-        aspect = f"{ctx_w//g}:{ctx_h//g}"
+        g = gcd(width, height) if width and height else 1
+        aspect = f"{width//g}:{height//g}"
 
         validation_prompt = f"""Fix the bounding boxes in this Ideogram 4 caption.
 
@@ -3815,7 +3807,7 @@ USER SCENE: {original_input}
 ELEMENTS (each one is a separate subject that needs a bbox):
 {elements_text}
 
-IMAGE: {ctx_w}x{ctx_h} (aspect ratio: {aspect})
+IMAGE: {width}x{height} (aspect ratio: {aspect})
 
 Your ONLY task: imagine a photograph of this scene, then assign each element a bounding box that matches WHERE that person/object would actually be in the photo.
 
@@ -3836,18 +3828,16 @@ Output ONLY the corrected JSON. No code fences."""
         validation_system = 'You are a spatial composition expert. You output ONLY corrected JSON with properly placed bounding boxes.'
 
     # 5) Debug
-    debug_md = f"### Ideogram Parse (passe {pass_number})\n\n"
+    debug_md = f"### Ideogram Parse\n\n"
     debug_md += f"- LLM response length: {len(llm_response_raw)} chars\n"
     debug_md += f"- JSON valide: {is_valid}\n"
     if not is_valid:
         debug_md += f"- Erreur: {error_msg}\n"
-    debug_md += f"- Bboxes converties: {width and height}\n"
-    debug_md += f"- Pass: {pass_number}\n"
-    if pass_number == 1:
-        debug_md += f"- validation_prompt length: {len(validation_prompt)} chars\n"
+    debug_md += f"- Bboxes converties: {bool(width and height)} (width={width}, height={height})\n"
+    debug_md += f"- validation_prompt length: {len(validation_prompt)} chars\n"
 
     logging.warning(
-        f"[ideogram/parse] user={user_id} pass={pass_number} "
+        f"[ideogram/parse] user={user_id} "
         f"is_valid={is_valid} llm_len={len(llm_response_raw)} "
         f"validation_prompt_len={len(validation_prompt)}"
     )
