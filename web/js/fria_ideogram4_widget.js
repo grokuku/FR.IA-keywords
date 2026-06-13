@@ -46,7 +46,15 @@
                 }
 
                 // ---- Utilitaires API ----
-                const getApiUrl = () => "https://kw.holaf.fr/api";
+                const getApiUrl = () => {
+                    try {
+                        const cfg = JSON.parse(localStorage.getItem("FRIA_config") || "{}");
+                        const base = (cfg.serverUrl || "https://kw.holaf.fr").replace(/\/+$/, "");
+                        return base + "/api";
+                    } catch {
+                        return "https://kw.holaf.fr/api";
+                    }
+                };
                 const getApiKey = () => {
                     try { return JSON.parse(localStorage.getItem("FRIA_config") || "{}").apiKey || ""; }
                     catch { return ""; }

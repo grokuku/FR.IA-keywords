@@ -18,7 +18,13 @@ function getConfig() {
 }
 
 function getApiUrl() {
-    return "https://kw.holaf.fr/api";
+    try {
+        const cfg = JSON.parse(localStorage.getItem("FRIA_config") || "{}");
+        const base = (cfg.serverUrl || "https://kw.holaf.fr").replace(/\/+$/, "");
+        return base + "/api";
+    } catch {
+        return "https://kw.holaf.fr/api";
+    }
 }
 
 function getApiKey() {
