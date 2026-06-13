@@ -2464,9 +2464,30 @@ def enhance_prompts():
     user_id = _get_current_user_id()
     data = request.get_json() or {}
 
+    import logging
+    logging.warning(
+        f"[enhance/prompts] REQUEST user={user_id} "
+        f"keys={list(data.keys())} style_id={data.get('style_id')} "
+        f"prompt_type={data.get('prompt_type')} text_len={len(data.get('text', ''))}"
+    )
+
     prepared = _prepare_enhance(user_id, data)
     if isinstance(prepared, tuple):  # erreur (jsonify, status)
         return prepared
+
+    # Log diagnostic: le style est-il arrive jusqu'au system_prompt ?
+    _sys_content = ''
+    for _m in prepared.get('llm_request', {}).get('messages', []):
+        if _m.get('role') == 'system':
+            _sys_content = _m.get('content', '')
+            break
+    _has_style_rule = 'STYLE PRESERVATION RULE' in _sys_content
+    logging.warning(
+        f"[enhance/prompts] DIAG style_id_sent={data.get('style_id')} "
+        f"style_text_len={len(prepared.get('style_text') or '')} "
+        f"has_style_rule_in_sys={_has_style_rule} "
+        f"preset_id_resolved={prepared.get('preset_id')}"
+    )
 
     # Extraire system + user depuis llm_request['messages']
     messages = prepared.get('llm_request', {}).get('messages', [])
