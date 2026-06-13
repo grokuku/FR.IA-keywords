@@ -189,16 +189,21 @@ if _routes is not None and _update_manager_mod is not None:
     @_routes.get("/fr_ia/credentials")
     async def _fr_ia_get_credentials_route(request):
         try:
-            from .nodes import _credentials
-            import os
-            creds_path = _credentials.get_credentials_path()
-            creds = _credentials._load_fria_credentials(use_cache=False)
+            # Charger _credentials par chemin absolu (comme les nodes)
+            # pour eviter les problemes de relative import dans le contexte
+            # des routes ComfyUI.
+            _load_module(
+                os.path.join(_nodes_dir, "_credentials.py"),
+                "_credentials",
+            )
+            import FRIA_ComfyUI.nodes._credentials as _creds_mod
+            creds = _creds_mod._load_fria_credentials(use_cache=False)
             return _aio_web.json_response({
                 "status": "ok",
                 "api_key": creds.get("api_key", ""),
                 "server_url": creds.get("server_url", "https://kw.holaf.fr"),
-                "path": creds_path,
-                "exists": os.path.isfile(creds_path),
+                "path": _creds_mod.get_credentials_path(),
+                "exists": os.path.isfile(_creds_mod.get_credentials_path()),
             })
         except Exception as e:
             return _aio_web.json_response({
@@ -209,15 +214,19 @@ if _routes is not None and _update_manager_mod is not None:
     @_routes.post("/fr_ia/credentials")
     async def _fr_ia_save_credentials_route(request):
         try:
-            from .nodes import _credentials
+            # Charger _credentials par chemin absolu (cf. GET route)
+            _load_module(
+                os.path.join(_nodes_dir, "_credentials.py"),
+                "_credentials",
+            )
+            import FRIA_ComfyUI.nodes._credentials as _creds_mod
             data = await request.json()
             api_key = (data.get("api_key") or "").strip()
             server_url = (data.get("server_url") or "https://kw.holaf.fr").strip()
 
-            # Reuse the helper's path resolution
             import os, json
             from datetime import datetime
-            creds_path = _credentials.get_credentials_path()
+            creds_path = _creds_mod.get_credentials_path()
             os.makedirs(os.path.dirname(creds_path), exist_ok=True)
 
             # Permissions restrictives (Linux)
@@ -235,7 +244,7 @@ if _routes is not None and _update_manager_mod is not None:
                     os.umask(old_umask)
 
             # Invalider le cache pour que les nodes lisent la nouvelle valeur
-            _credentials.invalidate_cache()
+            _creds_mod.invalidate_cache()
 
             return _aio_web.json_response({
                 "status": "ok",
