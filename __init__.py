@@ -46,6 +46,10 @@ _ideogram4_mod = _load_module(
     os.path.join(_nodes_dir, "ideogram4_node.py"),
     "FRIAIdeogram4Node"
 )
+_prep_mod = _load_module(
+    os.path.join(_nodes_dir, "prep_node.py"),
+    "FRIAPromptPrepNode"
+)
 _diag_mod = _load_module(
     os.path.join(_nodes_dir, "diagnostic_node.py"),
     "FRIADiagnosticNode"
@@ -75,6 +79,11 @@ if _ideogram4_mod and hasattr(_ideogram4_mod, "FRIAIdeogram4Node"):
     cls = _ideogram4_mod.FRIAIdeogram4Node
     NODE_CLASS_MAPPINGS["FRIAIdeogram4Node"] = cls
     NODE_DISPLAY_NAME_MAPPINGS["FRIAIdeogram4Node"] = "FR.IA Ideogram 4 Builder"
+
+if _prep_mod and hasattr(_prep_mod, "FRIAPromptPrepNode"):
+    cls = _prep_mod.FRIAPromptPrepNode
+    NODE_CLASS_MAPPINGS["FRIAPromptPrepNode"] = cls
+    NODE_DISPLAY_NAME_MAPPINGS["FRIAPromptPrepNode"] = "FR.IA Prompt Prep"
 
 if _diag_mod and hasattr(_diag_mod, "FRIADiagnosticNode"):
     cls = _diag_mod.FRIADiagnosticNode
