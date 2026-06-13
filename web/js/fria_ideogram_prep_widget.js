@@ -1,16 +1,17 @@
 /**
  * FR.IA Ideogram Prep — Custom DOM widget for ComfyUI node FRIAIdeogramPrepNode.
  *
- * Ce node est la version "découplée" du FR.IA Ideogram 4 Builder :
+ * Version "découplée" du FR.IA Ideogram 4 Builder :
  *   - Il NE fait PAS d'appel LLM
  *   - Il sort 3 strings (llm_prompt, system_prompt, context)
  *   - L'utilisateur branche son propre node LLM (LM Studio, Ollama, etc.)
  *   - Puis le FR.IA Ideogram Parse parse la réponse
  *
- * DOM widget : grille 2 colonnes (Type fixé à ideogram4 + Style)
+ * DOM widget : grille 2 colonnes (Type fixé à ideogram4 + Style).
  *
  * Les widgets natifs ComfyUI (seed, description, element_1..4, special_instructions,
- * width, height) restent visibles au-dessus/dessous de ce DOM widget.
+ * width, height, style_id) sont restaurés automatiquement par ComfyUI au
+ * rechargement. Le DOM widget pilote juste style_id.
  */
 (function waitForApp() {
     const app = window.app || window.comfyAPI?.app?.app;
@@ -26,27 +27,27 @@
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Cacher le widget _api_config (piloté par le DOM) ----
-                const hideWidget = (n, name) => {
-                    const w = n.widgets?.find(x => x.name === name);
-                    if (w) {
-                        w.hidden = true;
-                        w.computeSize = () => [0, -4];
-                        if (w.inputEl) w.inputEl.style.display = "none";
-                        if (w.parentEl) w.parentEl.style.display = "none";
-                    }
-                };
-                hideWidget(node, "_api_config");
-
-                // ---- Supprimer la socket d'entrée de _api_config ----
+                // ---- Cacher le widget natif style_id (piloté par le DOM) ----
+                const styleWidget = node.widgets?.find(x => x.name === "style_id");
+                if (styleWidget) {
+                    styleWidget.hidden = true;
+                    styleWidget.computeSize = () => [0, -4];
+                    if (styleWidget.inputEl) styleWidget.inputEl.style.display = "none";
+                    if (styleWidget.parentEl) styleWidget.parentEl.style.display = "none";
+                }
+                // Supprimer la socket d'entrée
                 {
-                    const slot = node.findInputSlot?.("_api_config");
+                    const slot = node.findInputSlot?.("style_id");
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
                     }
                 }
 
-                // ---- Utilitaires API ----
+                // ---- Cache de rafraîchissement ----
+                const _cache = (window.__FRIA_cache = window.__FRIA_cache || { styles: 0 });
+                const CACHE_TTL = 15000;
+
+                // URL API pour recuperer la liste des styles
                 const getApiUrl = () => {
                     try {
                         const cfg = JSON.parse(localStorage.getItem("FRIA_config") || "{}");
@@ -72,34 +73,21 @@
                     return resp.json().catch(() => []);
                 };
 
-                // ---- Sync _api_config (api_url + api_key + style_id) ----
-                function syncPrepWidget() {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (!a) return;
-                    a.value = JSON.stringify({
-                        api_url: getApiUrl(),
-                        api_key: getApiKey(),
-                        style_id: parseInt(styleSelect.value) || 0,
-                    });
+                function syncStyleWidget() {
+                    if (styleWidget) {
+                        styleWidget.value = parseInt(styleSelect.value) || 0;
+                    }
                 }
 
-                // ---- Restauration depuis _api_config (au rechargement) ----
-                function restoreFromConfig() {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (!a || !a.value) return false;
-                    try {
-                        const cfg = JSON.parse(a.value);
-                        const sid = parseInt(cfg.style_id) || 0;
-                        if (sid > 0 && [...styleSelect.options].some(o => o.value === String(sid))) {
-                            styleSelect.value = String(sid);
-                        }
+                function restoreFromNativeWidget() {
+                    if (!styleWidget) return false;
+                    const sid = parseInt(styleWidget.value) || 0;
+                    if (sid > 0 && [...styleSelect.options].some(o => o.value === String(sid))) {
+                        styleSelect.value = String(sid);
                         return true;
-                    } catch { return false; }
+                    }
+                    return false;
                 }
-
-                // ---- Cache de rafraîchissement ----
-                const _cache = (window.__FRIA_cache = window.__FRIA_cache || { styles: 0 });
-                const CACHE_TTL = 15000;
 
                 async function populateStyleSelect() {
                     styleSelect.innerHTML = `<option value="0">-- Style --</option>`;
@@ -163,19 +151,19 @@
                 o.value = "ideogram4";
                 o.textContent = "Ideogram 4";
                 typeSelect.appendChild(o);
-                typeSelect.disabled = true; // pas d'autre type pour cette node
+                typeSelect.disabled = true;
                 typeDiv.appendChild(mkLabel("Type"));
                 typeDiv.appendChild(typeSelect);
                 grid.appendChild(typeDiv);
 
-                // Style (droite) — peuplé depuis /api/styles
+                // Style (droite)
                 const styleDiv = document.createElement("div");
                 const styleRow = document.createElement("div");
                 Object.assign(styleRow.style, { display: "flex", gap: "4px", alignItems: "center" });
                 const styleSelect = document.createElement("select");
                 Object.assign(styleSelect.style, selectStyle);
                 styleSelect.style.flex = "1";
-                styleSelect.onchange = syncPrepWidget;
+                styleSelect.onchange = syncStyleWidget;
                 styleSelect.addEventListener("mousedown", refreshStylesIfStale);
                 const styleRefreshBtn = document.createElement("button");
                 styleRefreshBtn.textContent = "↻";
@@ -205,25 +193,25 @@
                     serialize: false,
                     hideOnZoom: false,
                 });
-                widget.computeSize = () => [node.size[0] - 20, 110];
+                widget.computeSize = () => [node.size[0] - 20, 105];
 
                 // ---- Initialisation ----
                 populateStyleSelect().then(() => {
-                    restoreFromConfig();
-                    syncPrepWidget();
+                    restoreFromNativeWidget();
+                    syncStyleWidget();
                     let ra = 0;
                     function delayedRestore() {
-                        if (restoreFromConfig()) return;
+                        if (restoreFromNativeWidget()) return;
                         if (++ra < 20) setTimeout(delayedRestore, 300);
                     }
                     setTimeout(delayedRestore, 100);
                 });
 
-                // ---- Resize au resize du node ----
+                // ---- Resize ----
                 const onResize = node.onResize;
                 node.onResize = function (size) {
                     const r = onResize?.apply(this, arguments);
-                    widget.computeSize = () => [size[0] - 20, 110];
+                    widget.computeSize = () => [size[0] - 20, 105];
                     return r;
                 };
 

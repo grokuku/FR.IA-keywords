@@ -11,18 +11,18 @@ backend FR.IA (`/api/enhance/prompts`) qui retourne les chaînes prêtes :
   - neg_prompt     : le negative prompt du style (à brancher sur KSampler
                      CLIP Text Encode négatif)
 
-Le preset IA est résolu côté backend (premier preset global disponible
-par défaut, configurable via le DOM widget plus tard si besoin).
-L'utilisateur branche ensuite n'importe quel node LLM (LM Studio, Ollama,
-llama.cpp, OpenAI, etc.) entre ce Prep et le reste du workflow. Il a ainsi
-le contrôle total sur la VRAM et le moteur d'inférence.
+L'api_key et l'URL du serveur sont lues depuis le fichier de credentials
+ComfyUI (ComfyUI/user/default/fria_credentials.json), pas depuis un widget
+STRING (évite les fuites dans les workflows exportés et les bugs d'index
+de widgets).
 
 Entrées :
   - seed (INT)
   - base_prompt (STRING multiligne)
+  - prompt_type (COMBO)
+  - style_id (INT, widget natif ou piloté par le DOM widget)
   - special_instructions (STRING)
   - elements (STRING, optionnel) — JSON du Elements Picker
-  - _api_config (STRING, hidden) — JSON interne piloté par le DOM widget
 
 Sorties :
   - llm_prompt (STRING)
@@ -32,6 +32,8 @@ Sorties :
 
 import json
 import logging
+
+from . import _credentials
 
 
 class FRIAPromptPrepNode:
@@ -45,11 +47,9 @@ class FRIAPromptPrepNode:
             "required": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "base_prompt": ("STRING", {"multiline": True, "default": ""}),
+                "prompt_type": (["sdxl", "sd15", "flux", "anima", "qwen", "liste"], {"default": "sdxl"}),
+                "style_id": ("INT", {"default": 0, "min": 0}),
                 "special_instructions": ("STRING", {"default": ""}),
-                # Cache technique (api_url + api_key + prompt_type + style_id),
-                # caché visuellement par le DOM widget.
-                # La socket d'entrée est supprimée côté JS via node.removeInput().
-                "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             },
             "optional": {
                 # JSON sérialisé des éléments (connecté à la sortie elements_json du Elements Picker)
@@ -60,22 +60,11 @@ class FRIAPromptPrepNode:
     RETURN_TYPES = ("STRING", "STRING", "STRING")
     RETURN_NAMES = ("llm_prompt", "system_prompt", "neg_prompt")
 
-    def prepare(self, seed=0, base_prompt="", special_instructions="",
-                elements="[]", _api_config="{}"):
-        try:
-            api_cfg = json.loads(_api_config) if _api_config else {}
-        except json.JSONDecodeError:
-            api_cfg = {}
-
-        api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
-        api_key = api_cfg.get("api_key", "")
-        prompt_type = api_cfg.get("prompt_type", "sdxl")
-        style_id = int(api_cfg.get("style_id", 0) or 0)
-
-        logging.warning(
-            f"[FR.IA Prep] _api_config raw={_api_config[:300]} "
-            f"parsed_style_id={style_id} parsed_prompt_type={prompt_type}"
-        )
+    def prepare(self, seed=0, base_prompt="", prompt_type="sdxl",
+                style_id=0, special_instructions="", elements="[]"):
+        # api_key et api_url lus depuis le fichier de credentials
+        api_url = _credentials.get_api_url()
+        api_key = _credentials.get_api_key()
 
         # Parser elements : soit un tableau direct, soit l'objet _elements_json complet
         elems = []

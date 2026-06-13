@@ -1,9 +1,20 @@
 """
 FR.IA Prompt Enhancer Node — Optimise un prompt via LLM.
 DOM widget + connexion aux éléments du Elements Picker.
+
+L'api_key et l'URL du serveur sont lues depuis le fichier de credentials
+ComfyUI (ComfyUI/user/default/fria_credentials.json) via le helper _credentials.
+
+Le mode client-side (LLM local) est désactivé pour l'instant — le backend
+fait tout l'appel LLM. Ce mode pourra être réintroduit plus tard via un
+nouvel endpoint /api/enhance/preset-info qui résoudra les métadonnées
+du preset (is_client_side, base_url) côté serveur.
 """
 
 import json
+import logging
+
+from . import _credentials
 
 
 class FRIAEnhanceNode:
@@ -21,9 +32,6 @@ class FRIAEnhanceNode:
                 "preset_id": ("INT", {"default": 0, "min": 0}),
                 "style_id": ("INT", {"default": 0, "min": 0}),
                 "special_instructions": ("STRING", {"default": ""}),
-                # Cache technique (api_url + api_key), caché visuellement par le DOM widget.
-                # La socket d'entrée est supprimée côté JS via node.removeInput().
-                "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             },
             "optional": {
                 # JSON sérialisé des éléments (connecté à la sortie elements_json du Elements Picker)
@@ -36,19 +44,12 @@ class FRIAEnhanceNode:
 
     def enhance(self, seed=0, base_prompt="", prompt_type="sdxl",
                 preset_id=0, style_id=0, special_instructions="",
-                elements="[]", _api_config="{}"):
-        try:
-            api_cfg = json.loads(_api_config) if _api_config else {}
-        except json.JSONDecodeError:
-            api_cfg = {}
-
-        api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
-        api_key = api_cfg.get("api_key", "")
-        is_client_side = int(api_cfg.get("is_client_side", 0)) == 1
-        preset_base_url = (api_cfg.get("preset_base_url") or "").rstrip("/")
+                elements="[]"):
+        # api_key et api_url lus depuis le fichier de credentials
+        api_url = _credentials.get_api_url()
+        api_key = _credentials.get_api_key()
 
         # Parse elements JSON (soit un tableau direct, soit l'objet _elements_json complet)
-        # Si ce n'est pas du JSON, c'est du texte brut (ex: sortie "elements" du Picker)
         elems = []
         elems_raw = ""
         try:
@@ -57,13 +58,9 @@ class FRIAEnhanceNode:
                 elems = elems_parsed.get("elements", [])
             elif isinstance(elems_parsed, list):
                 elems = elems_parsed
-            else:
-                pass
         except (json.JSONDecodeError, TypeError):
-            # Pas du JSON → texte brut
             elems_raw = elements or ""
 
-        # Transformer les éléments structurés en texte
         def _fmt_elems(elist):
             lines = []
             for e in elist:
@@ -77,7 +74,6 @@ class FRIAEnhanceNode:
             return "\n".join(lines)
 
         elems_text = _fmt_elems(elems)
-        # Concaténer : éléments formatés + texte brut + prompt de base
         parts = [p for p in [elems_text, elems_raw, base_prompt] if p]
         combined_text = "\n\n".join(parts)
 
@@ -95,19 +91,9 @@ class FRIAEnhanceNode:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        # ── Mode client-side (LLM local) : boucle multi-passes ──────────────
-        # Le backend FR.IA prepare le payload LLM, le node fait l'appel direct a
-        # Ollama local, puis appelle /api/enhance/finish pour le post-traitement.
-        # Si le backend demande une passe de validation supplementaire, on reboucle.
-        if is_client_side and preset_base_url:
-            return self._enhance_local_loop(
-                api_url, api_key, preset_base_url, payload
-            )
-
-        # ── Mode cloud (defaut) : appel streaming vers /api/enhance ──────────
+        # Mode cloud (defaut) : appel streaming vers /api/enhance
         try:
             import requests
-            # Streaming ndjson : on lit les chunks jusqu'au status='done'
             r = requests.post(f"{api_url}/enhance",
                               json=payload, headers=headers, stream=True, timeout=(10, 180))
             r.raise_for_status()
@@ -152,75 +138,3 @@ class FRIAEnhanceNode:
                 "ui": {"prompt": [msg], "negative_prompt": [""]},
                 "result": (msg, "")
             }
-
-    def _enhance_local_loop(self, api_url, api_key, preset_base_url, payload):
-        """
-        Boucle multi-passes en mode client-side (LLM local).
-        1. POST {api_url}/enhance/prepare -> {session_id, llm_request, llm_config}
-        2. POST {preset_base_url}/chat/completions avec llm_request -> reponse LLM
-        3. POST {api_url}/enhance/finish avec {session_id, llm_response, pass} -> resultat
-        Si status='awaiting_validation', on reboucle avec pass+1.
-        Si status='done', on a le resultat final.
-        """
-        import requests as _req
-        backend_headers = {"Content-Type": "application/json"}
-        if api_key:
-            backend_headers["Authorization"] = f"Bearer {api_key}"
-
-        # 1) prepare
-        try:
-            r = _req.post(f"{api_url}/enhance/prepare", json=payload,
-                          headers=backend_headers, timeout=30)
-            r.raise_for_status()
-            prep = r.json()
-        except Exception as e:
-            msg = f"Erreur prepare: {e}"
-            return {"ui": {"prompt": [msg], "negative_prompt": [""]}, "result": (msg, "")}
-
-        session_id = prep.get("session_id")
-        llm_request = prep.get("llm_request")
-        llm_config = prep.get("llm_config", {})
-
-        # 2) Boucle multi-passes
-        pass_idx = 1
-        while True:
-            # 2a) Appel direct au LLM local
-            llm_url = preset_base_url + "/chat/completions"
-            llm_headers = {"Content-Type": "application/json"}
-            # Note: pas d'auth explicite ici, Ollama local n'en a pas besoin.
-            try:
-                r = _req.post(llm_url, json=llm_request, headers=llm_headers, timeout=180)
-                r.raise_for_status()
-                llm_response = r.json()
-            except Exception as e:
-                msg = f"Erreur LLM local ({llm_url}): {e}"
-                return {"ui": {"prompt": [msg], "negative_prompt": [""]}, "result": (msg, "")}
-
-            # 2b) finish
-            try:
-                r = _req.post(
-                    f"{api_url}/enhance/finish",
-                    json={"session_id": session_id, "llm_response": llm_response, "pass": pass_idx},
-                    headers=backend_headers, timeout=60,
-                )
-                r.raise_for_status()
-                fin = r.json()
-            except Exception as e:
-                msg = f"Erreur finish: {e}"
-                return {"ui": {"prompt": [msg], "negative_prompt": [""]}, "result": (msg, "")}
-
-            if fin.get("status") == "done":
-                prompt = fin.get("output", "")
-                neg_prompt = fin.get("negative_prompt", "")
-                return {
-                    "ui": {"prompt": [prompt], "negative_prompt": [neg_prompt]},
-                    "result": (prompt, neg_prompt),
-                }
-            if fin.get("status") == "awaiting_validation":
-                # Le backend veut une autre passe : reboucle
-                llm_request = fin.get("llm_request")
-                pass_idx = int(fin.get("pass", pass_idx + 1))
-                continue
-            # Statut inconnu
-            msg = f"Statut inattendu du backend: {fin.get('status')}"
-            return {"ui": {"prompt": [msg], "negative_prompt": [""]}, "result": (msg, "")}

@@ -13,6 +13,9 @@ Sorties :
 """
 
 import json
+import logging
+
+from . import _credentials
 
 
 class FRIAIdeogram4Node:
@@ -32,10 +35,9 @@ class FRIAIdeogram4Node:
                 "element_2": ("STRING", {"default": ""}),
                 "element_3": ("STRING", {"default": ""}),
                 "element_4": ("STRING", {"default": ""}),
+                "preset_id": ("INT", {"default": 0, "min": 0}),
+                "style_id": ("INT", {"default": 0, "min": 0}),
             },
-            "optional": {
-                "_api_config": ("STRING", {"default": "{}", "multiline": True}),
-            }
         }
 
     RETURN_TYPES = ("STRING", "INT", "INT", "IMAGE", "STRING")
@@ -44,20 +46,10 @@ class FRIAIdeogram4Node:
     def build_caption(self, seed=0, width=1024, height=1024,
                       description="", element_1="", element_2="",
                       element_3="", element_4="",
-                      _api_config="{}"):
-        # Initialiser data au cas ou la requete echoue (evite UnboundLocalError)
-        data = {}
-        try:
-            api_cfg = json.loads(_api_config) if _api_config else {}
-        except json.JSONDecodeError:
-            api_cfg = {}
-
-        api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
-        api_key = api_cfg.get("api_key", "")
-        preset_id = api_cfg.get("preset_id") or None
-        style_id = api_cfg.get("style_id") or None
-        is_client_side = int(api_cfg.get("is_client_side", 0)) == 1
-        preset_base_url = (api_cfg.get("preset_base_url") or "").rstrip("/")
+                      preset_id=0, style_id=0):
+        # api_key et api_url lus depuis le fichier de credentials
+        api_url = _credentials.get_api_url()
+        api_key = _credentials.get_api_key()
 
         ep_elements = []
         for el in [element_1, element_2, element_3, element_4]:
@@ -71,60 +63,47 @@ class FRIAIdeogram4Node:
             "width": width,
             "height": height,
             "ep_elements": ep_elements,
-            "preset_id": preset_id,
-            "style_id": style_id,
+            "preset_id": preset_id if preset_id > 0 else None,
+            "style_id": style_id if style_id > 0 else None,
         }
 
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        # ── Mode client-side (LLM local) : boucle multi-passes ──────────────
-        if is_client_side and preset_base_url:
-            try:
-                prompt, debug_md = self._build_caption_local_loop(
-                    api_url, api_key, preset_base_url, payload
-                )
-            except Exception as e:
-                prompt = f"Erreur API : {e}"
-                debug_md = ""
-        else:
-            # ── Mode cloud (defaut) : streaming vers /api/enhance ──────────
-            try:
-                import requests
-                # Streaming keepalive : on lit les chunks jusqu'au status='done'
-                # Le keepalive JSON toutes les 5s empeche le timeout sur cold start LLM
-                r = requests.post(f"{api_url}/enhance",
-                                  json=payload, headers=headers, stream=True, timeout=(10, 180))
-                r.raise_for_status()
-                prompt = ""
-                debug_md = ""
-                for line in r.iter_lines():
-                    if not line:
-                        continue
-                    try:
-                        chunk = json.loads(line.decode('utf-8'))
-                    except Exception:
-                        continue
-                    status = chunk.get("status", "")
-                    if status == "done":
-                        prompt = chunk.get("output", "")
-                        debug_md = chunk.get("debug_md", "")
-                        break
-                    elif status == "error":
-                        prompt = f"Erreur API : {chunk.get('error', 'inconnue')[:200]}"
-                        break
-                    # status == 'pending' : on continue, le keepalive reset le timeout read
-            except ImportError:
-                prompt = "Erreur: module 'requests' manquant. pip install requests"
-            except Exception as e:
-                msg = str(e)
-                if "401" in msg:
-                    prompt = "Erreur : cle API invalide ou manquante."
-                elif "429" in msg:
-                    prompt = "Erreur : rate limit atteint. Attendez un instant."
-                else:
-                    prompt = f"Erreur API : {msg}"
+        # Mode cloud (defaut) : streaming vers /api/enhance
+        try:
+            import requests
+            r = requests.post(f"{api_url}/enhance",
+                              json=payload, headers=headers, stream=True, timeout=(10, 180))
+            r.raise_for_status()
+            prompt = ""
+            debug_md = ""
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line.decode('utf-8'))
+                except Exception:
+                    continue
+                status = chunk.get("status", "")
+                if status == "done":
+                    prompt = chunk.get("output", "")
+                    debug_md = chunk.get("debug_md", "")
+                    break
+                elif status == "error":
+                    prompt = f"Erreur API : {chunk.get('error', 'inconnue')[:200]}"
+                    break
+        except ImportError:
+            prompt = "Erreur: module 'requests' manquant. pip install requests"
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg:
+                prompt = "Erreur : cle API invalide ou manquante."
+            elif "429" in msg:
+                prompt = "Erreur : rate limit atteint. Attendez un instant."
+            else:
+                prompt = f"Erreur API : {msg}"
 
         preview_tensor = _render_preview(prompt, width, height)
 

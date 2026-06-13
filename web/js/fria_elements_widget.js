@@ -78,19 +78,14 @@ function hideWidget(node, name) {
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Masquer les widgets sérialisés (_elements_json, _api_config) ----
+                // ---- Masquer le widget sérialisé _elements_json ----
+                // (plus de _api_config : api_key/url sont lus cote Python depuis
+                // le fichier de credentials)
                 hideWidget(node, "_elements_json");
-                hideWidget(node, "_api_config");
 
-                // ---- Supprimer les sockets d'entrée des widgets purement techniques ----
-                // _elements_json et _api_config sont des caches internes (JSON sérialisé
-                // par le JS pour passer des données à Python). Depuis ComfyUI v1.16,
-                // chaque widget STRING déclaré dans INPUT_TYPES génère une socket
-                // d'entrée dans node.inputs[]. On la supprime pour qu'aucun câble ne
-                // puisse y être branché — le widget reste sérialisé via widgets_values
-                // et Python le reçoit normalement comme argument keyword.
-                for (const inputName of ["_elements_json", "_api_config"]) {
-                    const slot = node.findInputSlot?.(inputName);
+                // ---- Supprimer la socket d'entrée de _elements_json ----
+                {
+                    const slot = node.findInputSlot?.("_elements_json");
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
                     }
@@ -118,12 +113,8 @@ function hideWidget(node, name) {
                 }
 
                 function syncApiConfigWidget() {
-                    const w = node.widgets?.find(x => x.name === "_api_config");
-                    if (!w) return;
-                    w.value = JSON.stringify({
-                        api_url: getApiUrl(),
-                        api_key: getApiKey(),
-                    });
+                    // No-op: _api_config supprime, api_key/url lus depuis le
+                    // fichier de credentials cote Python.
                 }
 
                 // Sync initial

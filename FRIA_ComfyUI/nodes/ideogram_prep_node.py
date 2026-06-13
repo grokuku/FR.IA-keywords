@@ -11,18 +11,15 @@ la passe 1 :
   - context        : JSON bundle {original_input, width, height, style_text,
                      model} pour la passe 2 (construit par /api/ideogram/parse)
 
-L'utilisateur branche ensuite n'importe quel node LLM (LM Studio, Ollama,
-llama.cpp, OpenAI, etc.) entre ce Prep et la node FR.IA Ideogram Parse.
-Il peut optionnellement faire une passe 2 (validation des bboxes) en
-rebranchant la sortie `validation_prompt` du Parse vers un 2ème LLM, puis
-vers le Parse avec pass_number=2.
+L'api_key et l'URL du serveur sont lues depuis le fichier de credentials
+ComfyUI (ComfyUI/user/default/fria_credentials.json) via le helper _credentials.
 
-Entrées (identiques au FRIAIdeogramPrepNode) :
+Entrées :
   - seed (INT)
   - description (STRING multiligne)
   - element_1..4 (STRING) — widgets natifs
   - special_instructions (STRING)
-  - _api_config (STRING, hidden) — JSON interne piloté par le DOM widget
+  - style_id (INT, widget natif piloté par le DOM widget)
 
 Sorties :
   - llm_prompt (STRING)
@@ -32,6 +29,8 @@ Sorties :
 
 import json
 import logging
+
+from . import _credentials
 
 
 class FRIAIdeogramPrepNode:
@@ -52,9 +51,7 @@ class FRIAIdeogramPrepNode:
                 "element_3": ("STRING", {"default": ""}),
                 "element_4": ("STRING", {"default": ""}),
                 "special_instructions": ("STRING", {"default": ""}),
-                # Cache technique (api_url + api_key + style_id), caché visuellement
-                # par le DOM widget. La socket d'entrée est supprimée côté JS.
-                "_api_config": ("STRING", {"default": "{}", "multiline": True}),
+                "style_id": ("INT", {"default": 0, "min": 0}),
             },
         }
 
@@ -63,15 +60,10 @@ class FRIAIdeogramPrepNode:
 
     def prepare(self, seed=0, width=1024, height=1024, description="",
                 element_1="", element_2="", element_3="", element_4="",
-                special_instructions="", _api_config="{}"):
-        try:
-            api_cfg = json.loads(_api_config) if _api_config else {}
-        except json.JSONDecodeError:
-            api_cfg = {}
-
-        api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
-        api_key = api_cfg.get("api_key", "")
-        style_id = int(api_cfg.get("style_id", 0) or 0)
+                special_instructions="", style_id=0):
+        # api_key et api_url lus depuis le fichier de credentials
+        api_url = _credentials.get_api_url()
+        api_key = _credentials.get_api_key()
 
         # Construire ep_elements (format Ideogram 4 : liste de {type, text})
         ep_elements = []
@@ -80,9 +72,6 @@ class FRIAIdeogramPrepNode:
                 ep_elements.append({"type": "text", "text": el.strip()})
 
         # Construire le payload pour /api/ideogram/prep
-        # NB : on ne met PAS api_url/api_key dans le payload (fuites
-        # possibles dans les workflows exportes). La Parse node a son
-        # propre widget _api_config sync avec localStorage.
         payload = {
             "text": description.strip(),
             "seed": seed if seed > 0 else None,

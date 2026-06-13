@@ -5,13 +5,15 @@ Reçoit en entrée :
   - llm_response (STRING) : la string brute sortie par le LLM
   - context (STRING)      : JSON bundle retourné par /api/ideogram/prep
                             (contient original_input, width, height, style_text, model)
-  - _api_config (STRING, hidden) : JSON interne piloté par le DOM widget
 
 Fait :
   1. Appelle /api/ideogram/parse qui extrait le JSON, le valide, convertit
      les bboxes pixels -> 0-1000, et construit le validation_prompt
      (toujours, c'est instantané)
   2. Rend le preview visuel des bboxes (côté local avec PIL)
+
+L'api_key et l'URL du serveur sont lues depuis le fichier de credentials
+ComfyUI (ComfyUI/user/default/fria_credentials.json) via le helper _credentials.
 
 Sorties :
   - prompt (STRING) : JSON propre (bboxes en 0-1000)
@@ -23,6 +25,8 @@ Sorties :
 
 import json
 import logging
+
+from . import _credentials
 
 
 class FRIAIdeogramParseNode:
@@ -36,23 +40,16 @@ class FRIAIdeogramParseNode:
             "required": {
                 "llm_response": ("STRING", {"forceInput": True, "multiline": True, "default": ""}),
                 "context": ("STRING", {"forceInput": True, "multiline": True, "default": "{}"}),
-                # Cache technique (api_url + api_key), caché visuellement par
-                # le DOM widget. La socket d'entrée est supprimée côté JS.
-                "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             },
         }
 
     RETURN_TYPES = ("STRING", "STRING", "STRING", "IMAGE", "STRING")
     RETURN_NAMES = ("prompt", "validation_prompt", "validation_system", "preview", "debug")
 
-    def parse(self, llm_response, context, _api_config="{}"):
-        try:
-            api_cfg = json.loads(_api_config) if _api_config else {}
-        except json.JSONDecodeError:
-            api_cfg = {}
-
-        api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
-        api_key = api_cfg.get("api_key", "")
+    def parse(self, llm_response, context):
+        # api_key et api_url lus depuis le fichier de credentials
+        api_url = _credentials.get_api_url()
+        api_key = _credentials.get_api_key()
 
         # Lire width/height du context (source de verite depuis la Prep)
         try:

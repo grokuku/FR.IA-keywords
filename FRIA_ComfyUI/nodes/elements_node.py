@@ -25,19 +25,16 @@ class FRIAElementsNode:
                 # JSON sérialisé par le JS : elements + random_count
                 # Masqué dans l'UI ComfyUI
                 "_elements_json": ("STRING", {"default": "{}", "multiline": True}),
-                # JSON sérialisé par le JS : api_url + api_key
-                # Masqué dans l'UI ComfyUI
-                "_api_config": ("STRING", {"default": "{}", "multiline": True}),
             }
         }
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("elements",)
 
-    def generate(self, seed, _elements_json="{}", _api_config="{}"):
+    def generate(self, seed, _elements_json="{}"):
+        from . import _credentials
         try:
             elems_cfg = json.loads(_elements_json) if _elements_json else {}
-            api_cfg = json.loads(_api_config) if _api_config else {}
         except json.JSONDecodeError:
             msg = "Erreur : config JSON invalide"
             return {
@@ -45,8 +42,9 @@ class FRIAElementsNode:
                 "result": (msg,)
             }
 
-        api_url = (api_cfg.get("api_url") or "https://kw.holaf.fr/api").rstrip("/")
-        api_key = api_cfg.get("api_key", "")
+        # api_key et api_url lus depuis le fichier de credentials
+        api_url = _credentials.get_api_url()
+        api_key = _credentials.get_api_key()
         elements = elems_cfg.get("elements", [])
         random_count = int(elems_cfg.get("random_count", 0))
 

@@ -6,18 +6,18 @@
  *   - Il sort 3 strings (llm_prompt, system_prompt, neg_prompt)
  *   - L'utilisateur branche son propre node LLM (LM Studio, Ollama, etc.)
  *
- * DOM widget : grille 2 colonnes
- *   - Type (gauche) : valeurs fixes SDXL / SD1.5 / Flux / Anima / Qwen / Liste
- *   - Style (droite) : peuplé depuis /api/styles
- *   - Pas de bouton "Test enhance" (n'a plus de sens)
- *   - Pas de textarea de résultat (les sorties sont sur les sockets)
- *   - Pas de dropdown "Preset IA" (pas de preset_id dans ce node)
+ * DOM widget simplifié :
+ *   - 1 selecteur de Style (visuel, pratique) qui set le widget natif style_id
+ *   - 1 bouton "↻" pour rafraichir la liste des styles
+ *   - Pas de bouton "Test enhance", pas de textarea, pas de dropdown "Preset IA"
  *
  * Les widgets natifs ComfyUI (seed, base_prompt, special_instructions,
- * elements) restent visibles au-dessus/dessous de ce DOM widget.
+ * prompt_type, style_id, elements) sont restaurés automatiquement par
+ * ComfyUI au rechargement de la page. Le DOM widget pilote juste
+ * style_id (et le dropdown Prompt Type reste natif COMBO).
  *
- * Le state (prompt_type + style_id + api_url + api_key) est stocké dans
- * _api_config (widget STRING caché, socket d'entrée supprimée).
+ * api_key et server_url sont lus depuis ComfyUI/user/default/fria_credentials.json
+ * (helper Python _credentials). Plus de widget STRING _api_config.
  */
 (function waitForApp() {
     const app = window.app || window.comfyAPI?.app?.app;
@@ -33,27 +33,28 @@
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Cacher le widget _api_config (piloté par le DOM) ----
-                const hideWidget = (n, name) => {
-                    const w = n.widgets?.find(x => x.name === name);
-                    if (w) {
-                        w.hidden = true;
-                        w.computeSize = () => [0, -4];
-                        if (w.inputEl) w.inputEl.style.display = "none";
-                        if (w.parentEl) w.parentEl.style.display = "none";
-                    }
-                };
-                hideWidget(node, "_api_config");
+                // ---- Cacher le widget natif style_id (piloté par le DOM) ----
+                const styleWidget = node.widgets?.find(x => x.name === "style_id");
+                if (styleWidget) {
+                    styleWidget.hidden = true;
+                    styleWidget.computeSize = () => [0, -4];
+                    if (styleWidget.inputEl) styleWidget.inputEl.style.display = "none";
+                    if (styleWidget.parentEl) styleWidget.parentEl.style.display = "none";
+                }
 
-                // ---- Supprimer la socket d'entrée de _api_config ----
+                // ---- Supprimer la socket d'entrée de style_id ----
                 {
-                    const slot = node.findInputSlot?.("_api_config");
+                    const slot = node.findInputSlot?.("style_id");
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
                     }
                 }
 
-                // ---- Utilitaires API ----
+                // ---- Cache de rafraîchissement ----
+                const _cache = (window.__FRIA_cache = window.__FRIA_cache || { styles: 0 });
+                const CACHE_TTL = 15000;
+
+                // URL API pour recuperer la liste des styles
                 const getApiUrl = () => {
                     try {
                         const cfg = JSON.parse(localStorage.getItem("FRIA_config") || "{}");
@@ -79,41 +80,23 @@
                     return resp.json().catch(() => []);
                 };
 
-                // ---- Sync _api_config (api_url + api_key + prompt_type + style_id) ----
-                function syncPrepWidget() {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (!a) return;
-                    a.value = JSON.stringify({
-                        api_url: getApiUrl(),
-                        api_key: getApiKey(),
-                        prompt_type: typeSelect.value,
-                        style_id: parseInt(styleSelect.value) || 0,
-                    });
+                function syncStyleWidget() {
+                    if (styleWidget) {
+                        styleWidget.value = parseInt(styleSelect.value) || 0;
+                    }
                 }
 
-                // ---- Restauration depuis _api_config (au rechargement de la page) ----
-                // Au refresh, ComfyUI restaure le widget STRING _api_config avec
-                // sa valeur sérialisée dans le workflow. On la lit pour resélectionner
-                // les bonnes options dans les <select> du DOM.
-                function restoreFromConfig() {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (!a || !a.value) return false;
-                    try {
-                        const cfg = JSON.parse(a.value);
-                        if (cfg.prompt_type && [...typeSelect.options].some(o => o.value === cfg.prompt_type)) {
-                            typeSelect.value = cfg.prompt_type;
-                        }
-                        const sid = parseInt(cfg.style_id) || 0;
-                        if (sid > 0 && [...styleSelect.options].some(o => o.value === String(sid))) {
-                            styleSelect.value = String(sid);
-                        }
+                // Restaurer la selection du style depuis le widget natif style_id
+                // (restaure par ComfyUI au rechargement de la page)
+                function restoreFromNativeWidget() {
+                    if (!styleWidget) return false;
+                    const sid = parseInt(styleWidget.value) || 0;
+                    if (sid > 0 && [...styleSelect.options].some(o => o.value === String(sid))) {
+                        styleSelect.value = String(sid);
                         return true;
-                    } catch { return false; }
+                    }
+                    return false;
                 }
-
-                // ---- Cache de rafraîchissement intelligent ----
-                const _cache = (window.__FRIA_cache = window.__FRIA_cache || { styles: 0 });
-                const CACHE_TTL = 15000; // 15 secondes
 
                 async function populateStyleSelect() {
                     styleSelect.innerHTML = `<option value="0">-- Style --</option>`;
@@ -157,44 +140,19 @@
                     return l;
                 };
 
-                // ---- Grille 2 colonnes (Type + Style) ----
-                const grid = document.createElement("div");
-                Object.assign(grid.style, {
-                    display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px",
-                });
-
-                const selectStyle = {
-                    width: "100%", padding: "3px 6px", borderRadius: "4px",
-                    border: "1px solid #555", background: "#3a3a3e",
-                    color: "#ccc", fontSize: "11px", cursor: "pointer",
-                };
-
-                // Type (gauche) — valeurs fixes comme sur le site
-                const typeDiv = document.createElement("div");
-                const typeSelect = document.createElement("select");
-                Object.assign(typeSelect.style, selectStyle);
-                ["SDXL", "SD1.5", "Flux", "Anima", "Qwen", "Liste"].forEach(v => {
-                    const o = document.createElement("option");
-                    o.value = v.toLowerCase();
-                    o.textContent = v;
-                    typeSelect.appendChild(o);
-                });
-                typeSelect.value = "sdxl";
-                typeSelect.onchange = syncPrepWidget;
-                typeDiv.appendChild(mkLabel("Type"));
-                typeDiv.appendChild(typeSelect);
-                grid.appendChild(typeDiv);
-
-                // Style (droite) — peuplé depuis /api/styles
-                const styleDiv = document.createElement("div");
+                // ---- Ligne : sélecteur de style ----
                 const styleRow = document.createElement("div");
                 Object.assign(styleRow.style, { display: "flex", gap: "4px", alignItems: "center" });
+
                 const styleSelect = document.createElement("select");
-                Object.assign(styleSelect.style, selectStyle);
-                styleSelect.style.flex = "1";
-                styleSelect.onchange = syncPrepWidget;
-                styleSelect.dataset.filled = "false";
+                Object.assign(styleSelect.style, {
+                    width: "100%", padding: "3px 6px", borderRadius: "4px",
+                    border: "1px solid #555", background: "#3a3a3e",
+                    color: "#ccc", fontSize: "11px", cursor: "pointer", flex: "1",
+                });
+                styleSelect.onchange = syncStyleWidget;
                 styleSelect.addEventListener("mousedown", refreshStylesIfStale);
+
                 const styleRefreshBtn = document.createElement("button");
                 styleRefreshBtn.textContent = "↻";
                 Object.assign(styleRefreshBtn.style, {
@@ -204,15 +162,13 @@
                 });
                 styleRefreshBtn.title = "Rafraîchir la liste des styles";
                 styleRefreshBtn.onclick = () => { _cache.styles = 0; refreshStylesIfStale(); };
-                styleDiv.appendChild(mkLabel("Style"));
+
+                container.appendChild(mkLabel("Style"));
                 styleRow.appendChild(styleSelect);
                 styleRow.appendChild(styleRefreshBtn);
-                styleDiv.appendChild(styleRow);
-                grid.appendChild(styleDiv);
+                container.appendChild(styleRow);
 
-                container.appendChild(grid);
-
-                // Mini-explication pour l'utilisateur
+                // Mini-explication
                 const help = document.createElement("div");
                 help.style.cssText = "font-size:10px;color:#777;margin-top:4px;line-height:1.4;";
                 help.innerHTML = "Sort 3 strings : <b>llm_prompt</b>, <b>system_prompt</b>, <b>neg_prompt</b>.<br>Branchez votre node LLM sur les 2 premiers.";
@@ -223,20 +179,16 @@
                     serialize: false,
                     hideOnZoom: false,
                 });
-                widget.computeSize = () => [node.size[0] - 20, 120];
+                widget.computeSize = () => [node.size[0] - 20, 105];
 
                 // ---- Initialisation ----
-                // Au premier chargement, _api_config est "{}" → on initialise avec les
-                // valeurs par défaut. Au rechargement d'un workflow sauvegardé,
-                // _api_config contient la sélection précédente et restoreFromConfig
-                // la restaure dans les <select>.
                 populateStyleSelect().then(() => {
-                    restoreFromConfig();
-                    syncPrepWidget();
+                    restoreFromNativeWidget();
+                    syncStyleWidget();
                     // Retry si les options n'étaient pas encore chargées
                     let ra = 0;
                     function delayedRestore() {
-                        if (restoreFromConfig()) return;
+                        if (restoreFromNativeWidget()) return;
                         if (++ra < 20) setTimeout(delayedRestore, 300);
                     }
                     setTimeout(delayedRestore, 100);
@@ -246,7 +198,7 @@
                 const onResize = node.onResize;
                 node.onResize = function (size) {
                     const r = onResize?.apply(this, arguments);
-                    widget.computeSize = () => [size[0] - 20, 120];
+                    widget.computeSize = () => [size[0] - 20, 105];
                     return r;
                 };
 

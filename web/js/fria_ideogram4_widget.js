@@ -226,35 +226,25 @@
                 node._domWidget = domWidget;
 
                 // ========================================
-                // _api_config sync
+                // Sync des widgets natifs (preset_id + style_id)
                 // ========================================
+                // (readApiConfig supprime : on n'utilise plus le widget STRING
+                // _api_config. Les widgets preset_id et style_id sont natifs.)
 
-                function readApiConfig() {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (!a || !a.value) return { api_url: getApiUrl(), api_key: getApiKey(), preset_id: 0, style_id: 0 };
-                    try { return { ...{ api_url: getApiUrl(), api_key: getApiKey(), preset_id: 0, style_id: 0 }, ...JSON.parse(a.value) }; }
-                    catch { return { api_url: getApiUrl(), api_key: getApiKey(), preset_id: 0, style_id: 0 }; }
+                // Sync des widgets natifs (preset_id + style_id) au lieu du widget
+                // STRING _api_config qui n'existe plus (api_key/url sont dans le
+                // fichier de credentials, lus cote Python).
+                function syncNativeWidgets() {
+                    const set = (name, val) => {
+                        const w = node.widgets?.find(x => x.name === name);
+                        if (w) w.value = val;
+                    };
+                    set("preset_id", parseInt(presetSelect.value) || 0);
+                    set("style_id", parseInt(styleSelect.value) || 0);
                 }
 
-                function saveApiConfig() {
-                    const a = node.widgets?.find(x => x.name === "_api_config");
-                    if (!a) return;
-                    // Resoudre le preset selectionne pour pousser ses infos (mode client-side)
-                    const presetId = parseInt(presetSelect.value) || 0;
-                    const presetObj = (node._friaPresets || []).find(p => p.id === presetId);
-                    a.value = JSON.stringify({
-                        api_url: getApiUrl(),
-                        api_key: getApiKey(),
-                        preset_id: presetId,
-                        style_id: parseInt(styleSelect.value) || 0,
-                        // Champs pour le mode client-side (LLM local)
-                        is_client_side: presetObj ? (presetObj.is_client_side ? 1 : 0) : 0,
-                        preset_base_url: presetObj ? (presetObj.base_url || "") : "",
-                    });
-                }
-
-                presetSelect.onchange = saveApiConfig;
-                styleSelect.onchange = saveApiConfig;
+                presetSelect.onchange = syncNativeWidgets;
+                styleSelect.onchange = syncNativeWidgets;
 
                 // ========================================
                 // RESTORE
@@ -262,14 +252,17 @@
 
                 function restoreFromWidgets(n) {
                     let restored = false;
-                    const cfg = readApiConfig();
+                    // Lire les widgets natifs preset_id et style_id (restaures
+                    // par ComfyUI au rechargement de la page).
+                    const pw = n.widgets?.find(x => x.name === "preset_id");
+                    const sw = n.widgets?.find(x => x.name === "style_id");
                     try {
-                        if (cfg.preset_id > 0 && [...presetSelect.options].some(o => o.value === String(cfg.preset_id))) {
-                            presetSelect.value = String(cfg.preset_id);
+                        if (pw && pw.value > 0 && [...presetSelect.options].some(o => o.value === String(pw.value))) {
+                            presetSelect.value = String(pw.value);
                             restored = true;
                         }
-                        if (cfg.style_id > 0 && [...styleSelect.options].some(o => o.value === String(cfg.style_id))) {
-                            styleSelect.value = String(cfg.style_id);
+                        if (sw && sw.value > 0 && [...styleSelect.options].some(o => o.value === String(sw.value))) {
+                            styleSelect.value = String(sw.value);
                             restored = true;
                         }
                     } catch {}
@@ -282,7 +275,7 @@
                 populateSelect(styleSelect, "styles", "-- Style --")
                     .then(() => restoreFromWidgets(node));
 
-                saveApiConfig();
+                syncNativeWidgets();
 
                 // ========================================
                 // GENERATE
@@ -343,7 +336,7 @@
                             }
                         }
                         resultTextarea.value = output;
-                        saveApiConfig();
+                        syncNativeWidgets();
                     } catch (err) {
                         resultTextarea.value = "Erreur: " + err.message;
                     }

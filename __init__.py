@@ -143,7 +143,77 @@ if _routes is not None and _update_manager_mod is not None:
                 "log": traceback.format_exc(),
             }, status=500)
 
+    # ── Routes credentials (lecture / ecriture du fichier local) ───
+    # Le menu FR.IA → Compte appelle ces routes pour lire/ecrire
+    # ComfyUI/user/default/fria_credentials.json (api_key + server_url).
+    # Les nodes Python lisent ce fichier via le helper _credentials.
+
+    @_routes.get("/fr_ia/credentials")
+    async def _fr_ia_get_credentials_route(request):
+        try:
+            from .nodes import _credentials
+            import os
+            creds_path = _credentials.get_credentials_path()
+            creds = _credentials._load_fria_credentials(use_cache=False)
+            return _aio_web.json_response({
+                "status": "ok",
+                "api_key": creds.get("api_key", ""),
+                "server_url": creds.get("server_url", "https://kw.holaf.fr"),
+                "path": creds_path,
+                "exists": os.path.isfile(creds_path),
+            })
+        except Exception as e:
+            return _aio_web.json_response({
+                "status": "error",
+                "message": f"Exception: {e}",
+            }, status=500)
+
+    @_routes.post("/fr_ia/credentials")
+    async def _fr_ia_save_credentials_route(request):
+        try:
+            from .nodes import _credentials
+            data = await request.json()
+            api_key = (data.get("api_key") or "").strip()
+            server_url = (data.get("server_url") or "https://kw.holaf.fr").strip()
+
+            # Reuse the helper's path resolution
+            import os, json
+            from datetime import datetime
+            creds_path = _credentials.get_credentials_path()
+            os.makedirs(os.path.dirname(creds_path), exist_ok=True)
+
+            # Permissions restrictives (Linux)
+            if os.name != 'nt':
+                old_umask = os.umask(0o077)
+            try:
+                with open(creds_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "api_key": api_key,
+                        "server_url": server_url,
+                        "updated_at": datetime.utcnow().isoformat() + "Z",
+                    }, f, indent=2)
+            finally:
+                if os.name != 'nt':
+                    os.umask(old_umask)
+
+            # Invalider le cache pour que les nodes lisent la nouvelle valeur
+            _credentials.invalidate_cache()
+
+            return _aio_web.json_response({
+                "status": "ok",
+                "path": creds_path,
+                "api_key_len": len(api_key),
+            })
+        except Exception as e:
+            import traceback
+            return _aio_web.json_response({
+                "status": "error",
+                "message": f"Exception: {e}",
+                "log": traceback.format_exc(),
+            }, status=500)
+
     print("[FR.IA] Update routes registered: POST /fr_ia/update, /fr_ia/restart")
+    print("[FR.IA] Credentials routes registered: GET/POST /fr_ia/credentials")
 else:
     # Si les routes ne sont pas enregistrees, on ne fait rien de plus
     # (l'item "Update" du menu ne fonctionnera pas, mais l'extension

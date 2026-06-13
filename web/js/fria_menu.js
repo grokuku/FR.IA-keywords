@@ -993,6 +993,12 @@ function renderCompteTab(container, cfg) {
     const section = document.createElement("div");
     section.style.cssText = _friaStyle.section;
 
+    // Status du fichier de credentials
+    const status = document.createElement("p");
+    status.style.cssText = "margin:0 0 12px; font-size:11px; color:#888;";
+    status.textContent = "Chargement...";
+    section.appendChild(status);
+
     const lbl1 = document.createElement("label");
     lbl1.textContent = "URL du serveur";
     lbl1.style.cssText = _friaStyle.label;
@@ -1022,13 +1028,87 @@ function renderCompteTab(container, cfg) {
     Object.assign(hint.style, { margin: "0 0 12px", fontSize: "11px", color: "#888" });
     section.appendChild(hint);
 
-    const saveBtn = mkBtn("Sauvegarder", _friaStyle.btn(), () => {
-        setConfig({ serverUrl: inputUrl.value.trim(), apiKey: inputKey.value.trim() });
-        saveBtn.textContent = "✓ Sauvegardé";
-        setTimeout(() => { saveBtn.textContent = "Sauvegarder"; }, 1500);
+    const saveBtn = mkBtn("Sauvegarder", _friaStyle.btn(), async () => {
+        saveBtn.disabled = true;
+        saveBtn.textContent = "...";
+        try {
+            const resp = await fetch("/fr_ia/credentials", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    api_key: inputKey.value.trim(),
+                    server_url: inputUrl.value.trim(),
+                }),
+            });
+            const data = await resp.json();
+            if (data.status === "ok") {
+                // Mettre a jour aussi localStorage pour le cache UI
+                setConfig({
+                    serverUrl: inputUrl.value.trim(),
+                    apiKey: inputKey.value.trim(),
+                });
+                status.textContent = `✓ Sauvegardé dans ${data.path}`;
+                status.style.color = "#4ade80";
+                saveBtn.textContent = "✓ Sauvegardé";
+            } else {
+                status.textContent = `✗ Erreur : ${data.message || "inconnue"}`;
+                status.style.color = "#ef4444";
+                saveBtn.textContent = "Erreur";
+            }
+        } catch (err) {
+            status.textContent = `✗ Erreur réseau : ${err.message}`;
+            status.style.color = "#ef4444";
+            saveBtn.textContent = "Erreur";
+        } finally {
+            saveBtn.disabled = false;
+            setTimeout(() => { saveBtn.textContent = "Sauvegarder"; }, 2000);
+        }
     });
     section.appendChild(saveBtn);
     container.appendChild(section);
+
+    // Charger les credentials depuis le fichier (au cas ou localStorage est vide)
+    fetch("/fr_ia/credentials")
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === "ok") {
+                if (data.server_url) inputUrl.value = data.server_url;
+                if (data.api_key) inputKey.value = data.api_key;
+                if (data.path) {
+                    status.textContent = `Fichier : ${data.path}`;
+                    status.style.color = "#888";
+                }
+                // Auto-migration : si le fichier n'existe pas mais que
+                // localStorage a une cle, on migre silencieusement.
+                if (!data.exists && cfg.apiKey) {
+                    status.textContent = "⟳ Migration depuis localStorage...";
+                    status.style.color = "#facc15";
+                    return fetch("/fr_ia/credentials", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            api_key: cfg.apiKey,
+                            server_url: cfg.serverUrl || "https://kw.holaf.fr",
+                        }),
+                    }).then(r => r.json()).then(saveData => {
+                        if (saveData.status === "ok") {
+                            status.textContent = `✓ Migré depuis localStorage vers ${saveData.path}`;
+                            status.style.color = "#4ade80";
+                        } else {
+                            status.textContent = `✗ Échec migration : ${saveData.message || "inconnu"}`;
+                            status.style.color = "#ef4444";
+                        }
+                    });
+                }
+            } else {
+                status.textContent = `✗ Impossible de lire le fichier : ${data.message || "inconnu"}`;
+                status.style.color = "#ef4444";
+            }
+        })
+        .catch(err => {
+            status.textContent = `✗ Erreur de chargement : ${err.message}`;
+            status.style.color = "#ef4444";
+        });
 }
 
 // ── Update (git pull sur le repo local) ────────────────────────────
