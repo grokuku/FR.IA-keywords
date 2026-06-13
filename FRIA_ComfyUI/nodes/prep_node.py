@@ -72,6 +72,11 @@ class FRIAPromptPrepNode:
         prompt_type = api_cfg.get("prompt_type", "sdxl")
         style_id = int(api_cfg.get("style_id", 0) or 0)
 
+        logging.warning(
+            f"[FR.IA Prep] _api_config raw={_api_config[:300]} "
+            f"parsed_style_id={style_id} parsed_prompt_type={prompt_type}"
+        )
+
         # Parser elements : soit un tableau direct, soit l'objet _elements_json complet
         elems = []
         elems_raw = ""
