@@ -91,6 +91,26 @@
                     });
                 }
 
+                // ---- Restauration depuis _api_config (au rechargement de la page) ----
+                // Au refresh, ComfyUI restaure le widget STRING _api_config avec
+                // sa valeur sérialisée dans le workflow. On la lit pour resélectionner
+                // les bonnes options dans les <select> du DOM.
+                function restoreFromConfig() {
+                    const a = node.widgets?.find(x => x.name === "_api_config");
+                    if (!a || !a.value) return false;
+                    try {
+                        const cfg = JSON.parse(a.value);
+                        if (cfg.prompt_type && [...typeSelect.options].some(o => o.value === cfg.prompt_type)) {
+                            typeSelect.value = cfg.prompt_type;
+                        }
+                        const sid = parseInt(cfg.style_id) || 0;
+                        if (sid > 0 && [...styleSelect.options].some(o => o.value === String(sid))) {
+                            styleSelect.value = String(sid);
+                        }
+                        return true;
+                    } catch { return false; }
+                }
+
                 // ---- Cache de rafraîchissement intelligent ----
                 const _cache = (window.__FRIA_cache = window.__FRIA_cache || { styles: 0 });
                 const CACHE_TTL = 15000; // 15 secondes
@@ -203,16 +223,30 @@
                     serialize: false,
                     hideOnZoom: false,
                 });
-                widget.computeSize = () => [node.size[0] - 20, 95];
+                widget.computeSize = () => [node.size[0] - 20, 120];
 
                 // ---- Initialisation ----
-                populateStyleSelect().then(() => syncPrepWidget());
+                // Au premier chargement, _api_config est "{}" → on initialise avec les
+                // valeurs par défaut. Au rechargement d'un workflow sauvegardé,
+                // _api_config contient la sélection précédente et restoreFromConfig
+                // la restaure dans les <select>.
+                populateStyleSelect().then(() => {
+                    restoreFromConfig();
+                    syncPrepWidget();
+                    // Retry si les options n'étaient pas encore chargées
+                    let ra = 0;
+                    function delayedRestore() {
+                        if (restoreFromConfig()) return;
+                        if (++ra < 20) setTimeout(delayedRestore, 300);
+                    }
+                    setTimeout(delayedRestore, 100);
+                });
 
                 // ---- Resize au resize du node ----
                 const onResize = node.onResize;
                 node.onResize = function (size) {
                     const r = onResize?.apply(this, arguments);
-                    widget.computeSize = () => [size[0] - 20, 95];
+                    widget.computeSize = () => [size[0] - 20, 120];
                     return r;
                 };
 
