@@ -188,7 +188,6 @@
                         if (current && [...typeSelect.options].some(o => o.value === current)) {
                             typeSelect.value = current;
                         }
-                        syncStyleWidget();
                     } catch {}
                 }
                 typeSelect.addEventListener("mousedown", loadIdeogramPrepTemplates);

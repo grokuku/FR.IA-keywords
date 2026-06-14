@@ -135,17 +135,16 @@
                     return l;
                 }
 
-                // ---- Preset + Style ----
-                const psRow = document.createElement("div");
-                Object.assign(psRow.style, { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" });
+                // ---- Template + Style ----
+                const tsRow = document.createElement("div");
+                Object.assign(tsRow.style, { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" });
 
-                const presetDiv = document.createElement("div");
-                const presetSelect = document.createElement("select");
-                Object.assign(presetSelect.style, { width: "100%", padding: "3px 6px", borderRadius: "4px", border: "1px solid #555", background: "#3a3a3e", color: "#ccc", fontSize: "11px", cursor: "pointer" });
-                presetSelect.addEventListener("mousedown", () => refreshIfStale(presetSelect, "presets", "presets"));
-                presetDiv.appendChild(mkLabel("Preset IA"));
-                presetDiv.appendChild(presetSelect);
-                psRow.appendChild(presetDiv);
+                const templateDiv = document.createElement("div");
+                const templateSelect = document.createElement("select");
+                Object.assign(templateSelect.style, { width: "100%", padding: "3px 6px", borderRadius: "4px", border: "1px solid #555", background: "#3a3a3e", color: "#ccc", fontSize: "11px", cursor: "pointer" });
+                templateDiv.appendChild(mkLabel("Template"));
+                templateDiv.appendChild(templateSelect);
+                tsRow.appendChild(templateDiv);
 
                 const styleDiv = document.createElement("div");
                 const styleSelect = document.createElement("select");
@@ -153,16 +152,17 @@
                 styleSelect.addEventListener("mousedown", () => refreshIfStale(styleSelect, "styles", "styles"));
                 styleDiv.appendChild(mkLabel("Style"));
                 styleDiv.appendChild(styleSelect);
-                psRow.appendChild(styleDiv);
-                container.appendChild(psRow);
+                tsRow.appendChild(styleDiv);
+                container.appendChild(tsRow);
 
-                // ---- Template ----
-                const templateDiv = document.createElement("div");
-                const templateSelect = document.createElement("select");
-                Object.assign(templateSelect.style, { width: "100%", padding: "3px 6px", borderRadius: "4px", border: "1px solid #555", background: "#3a3a3e", color: "#ccc", fontSize: "11px", cursor: "pointer" });
-                templateDiv.appendChild(mkLabel("Template"));
-                templateDiv.appendChild(templateSelect);
-                container.appendChild(templateDiv);
+                // ---- Preset ----
+                const presetDiv = document.createElement("div");
+                const presetSelect = document.createElement("select");
+                Object.assign(presetSelect.style, { width: "100%", padding: "3px 6px", borderRadius: "4px", border: "1px solid #555", background: "#3a3a3e", color: "#ccc", fontSize: "11px", cursor: "pointer" });
+                presetSelect.addEventListener("mousedown", () => refreshIfStale(presetSelect, "presets", "presets"));
+                presetDiv.appendChild(mkLabel("Preset IA"));
+                presetDiv.appendChild(presetSelect);
+                container.appendChild(presetDiv);
 
                 async function loadTemplates() {
                     const current = templateSelect.value;
@@ -180,7 +180,6 @@
                             if (current && [...templateSelect.options].some(o => o.value === current)) {
                                 templateSelect.value = current;
                             }
-                            syncNativeWidgets();
                         }
                     } catch {}
                 }
