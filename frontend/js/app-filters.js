@@ -208,12 +208,14 @@
           var author = s.owner_name || '?';
           var pub = s.is_public ? ' 🌐' : ' 🔒';
           var canEdit = s.user_id === (currentUser ? currentUser.id : '');
-          html += '<div class="flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700">' +
+          html += '<div class="fria-style-row flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700' +
+            (canEdit ? ' cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' : '') +
+            '" onclick="editStyleTab(' + s.id + ')" title="Cliquer pour editer">' +
             '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' +
             '<span class="text-xs text-slate-400 ml-2">par ' + author + pub + '</span></div>' +
-            '<div class="flex gap-1.5">';
-          if (canEdit) html += '<button onclick="editStyleTab(' + s.id + ')" class="text-xs text-indigo-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/20">Edit</button>';
-          html += '<button onclick="deleteStyle(' + s.id + ')" class="text-xs text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20">&times;</button></div></div>';
+            '<div class="flex gap-1.5" onclick="event.stopPropagation()">';
+          if (canEdit) html += '<button onclick="cloneStyleTab(' + s.id + ')" class="text-xs text-indigo-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/20" title="Cloner">📋</button>';
+          html += '<button onclick="deleteStyle(' + s.id + ')" class="text-xs text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20" title="Supprimer">🗑</button></div></div>';
         });
         el.innerHTML = html || '<p class="text-xs text-slate-400">Aucun style</p>';
       } catch { el.innerHTML = '<p class="text-xs text-red-400">Erreur de chargement</p>'; }
@@ -854,6 +856,21 @@
         document.getElementById('t-style-form-neg').value = s.negative_prompt || '';
         document.getElementById('t-style-form-public').checked = s.is_public;
         document.getElementById('btn-t-style-save').textContent = 'Mettre a jour';
+        document.getElementById('btn-t-style-clear').classList.remove('hidden');
+      }).catch(function(){});
+    }
+
+    function cloneStyleTab(id) {
+      // Clone : charge le style dans l'editeur sans editId (sauvegarde = nouveau style)
+      fetch(API + '/styles').then(function(r){ return r.json(); }).then(function(styles){
+        var s = styles.find(function(x){ return x.id === id; });
+        if (!s) return;
+        document.getElementById('t-style-form-name').value = s.name + ' (copie)';
+        document.getElementById('t-style-form-name').dataset.editId = '';
+        document.getElementById('t-style-form-text').value = s.style_text;
+        document.getElementById('t-style-form-neg').value = s.negative_prompt || '';
+        document.getElementById('t-style-form-public').checked = s.is_public;
+        document.getElementById('btn-t-style-save').textContent = 'Ajouter';
         document.getElementById('btn-t-style-clear').classList.remove('hidden');
       }).catch(function(){});
     }
