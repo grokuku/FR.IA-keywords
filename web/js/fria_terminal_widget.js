@@ -421,7 +421,28 @@
         },
 
         _fit() {
-            try { if (this.fitAddon) this.fitAddon.fit(); } catch {}
+            if (!this.fitAddon) return;
+            try {
+                this.fitAddon.fit();
+            } catch {}
+            // Propager la nouvelle taille au PTY serveur, sinon le shell
+                // reste en 80x24 et les programmes fullscreen (mc, vim...)
+                // s'affichent mal / avec des colonnes fantomes a droite.
+            this._sendResizeToServer();
+        },
+
+        _sendResizeToServer() {
+            if (!this.fitAddon || !this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+            try {
+                const dims = this.fitAddon.proposeDimensions();
+                if (!dims) return;
+                // xterm.js renvoie {cols, rows}; le backend attend [rows, cols]
+                this.socket.send(JSON.stringify({
+                    resize: [dims.rows, dims.cols],
+                }));
+            } catch (e) {
+                console.warn("[FR.IA Terminal] proposeDimensions failed:", e);
+            }
         },
 
         async _connectIfNeeded() {
