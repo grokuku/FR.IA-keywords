@@ -208,14 +208,18 @@
           var author = s.owner_name || '?';
           var pub = s.is_public ? ' 🌐' : ' 🔒';
           var canEdit = s.user_id === (currentUser ? currentUser.id : '');
-          html += '<div class="fria-style-row flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700' +
+          html += '<div class="fria-style-row flex flex-col px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700' +
             (canEdit ? ' cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' : '') +
             '" onclick="editStyleTab(' + s.id + ')" title="Cliquer pour editer">' +
+            '<div class="flex items-center justify-between">' +
             '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' +
             '<span class="text-xs text-slate-400 ml-2">par ' + author + pub + '</span></div>' +
-            '<div class="flex gap-1.5" onclick="event.stopPropagation()">';
-          if (canEdit) html += '<button onclick="cloneStyleTab(' + s.id + ')" class="text-xs text-indigo-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/20" title="Cloner">📋</button>';
-          html += '<button onclick="deleteStyle(' + s.id + ')" class="text-xs text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20" title="Supprimer">🗑</button></div></div>';
+            '<div class="flex gap-1 shrink-0 ml-2" onclick="event.stopPropagation()">';
+          if (canEdit) {
+            html += '<button onclick="cloneStyleTab(' + s.id + ')" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800/50 dark:hover:bg-indigo-900/50 transition" title="Cloner">📋 Cloner</button>';
+            html += '<button onclick="deleteStyle(' + s.id + ')" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50 dark:hover:bg-red-900/50 transition" title="Supprimer">🗑 Supprimer</button>';
+          }
+          html += '</div></div></div>';
         });
         el.innerHTML = html || '<p class="text-xs text-slate-400">Aucun style</p>';
       } catch { el.innerHTML = '<p class="text-xs text-red-400">Erreur de chargement</p>'; }

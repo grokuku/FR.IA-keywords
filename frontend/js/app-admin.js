@@ -564,6 +564,48 @@
       if (layout.right_top_height && panelRightTop) panelRightTop.style.height = layout.right_top_height + '%';
     }
 
+    // === Enregistrement des hauteurs de textarea ===
+    function initStyleTextareaResize() {
+      var taText = document.getElementById('t-style-form-text');
+      var taNeg = document.getElementById('t-style-form-neg');
+      if (!taText && !taNeg) return;
+
+      // Restaurer les hauteurs sauvegardees
+      if (currentUser && currentUser.settings && currentUser.settings.style_textarea) {
+        var saved = currentUser.settings.style_textarea;
+        if (saved.text_h && taText) taText.style.height = saved.text_h + 'px';
+        if (saved.neg_h && taNeg) taNeg.style.height = saved.neg_h + 'px';
+      }
+
+      var _saveTimer = null;
+      function saveHeights() {
+        clearTimeout(_saveTimer);
+        _saveTimer = setTimeout(function() {
+          if (!currentUser) return;
+          var settings = currentUser.settings || {};
+          settings.style_textarea = {
+            text_h: taText ? taText.offsetHeight : null,
+            neg_h: taNeg ? taNeg.offsetHeight : null
+          };
+          fetch(API + '/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(settings)
+          }).catch(function(){});
+        }, 500);
+      }
+
+      [taText, taNeg].forEach(function(ta) {
+        if (!ta) return;
+        // Ecouter mouseup (lache du handle de resize natif)
+        ta.addEventListener('mouseup', saveHeights);
+        // ResizeObserver comme fallback
+        if (window.ResizeObserver) {
+          new ResizeObserver(function() { saveHeights(); }).observe(ta);
+        }
+      });
+    }
+
     // === Colonnes redimensionnables ===
     var colResizeActive = null;
 
@@ -778,6 +820,7 @@
       initResizablePanels();
       makeColResizable('styles-divider', 'styles-left', 'styles-right', 25);
       makeColResizable('templates-divider', 'templates-left', 'templates-right', 25);
+      initStyleTextareaResize();
     });
     // === Import / Export ===
     function openImport() {
