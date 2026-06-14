@@ -178,6 +178,7 @@
                         const resp = await fetch(apiUrl + '/prompts/templates', { headers: apiHeaders() });
                         const list = resp.ok ? await resp.json() : [];
                         if (!Array.isArray(list) || list.length === 0) return;
+                        const current = typeSelect.value;
                         typeSelect.innerHTML = '';
                         list.forEach(t => {
                             const o = document.createElement("option");
@@ -185,15 +186,16 @@
                             o.textContent = t.name || t.prompt_type;
                             typeSelect.appendChild(o);
                         });
-                        // Restaurer depuis le widget natif
+                        // Restaurer la selection precedente, ou le widget natif
                         const pw = node.widgets?.find(x => x.name === "prompt_type");
-                        if (pw && pw.value && [...typeSelect.options].some(o => o.value === pw.value)) {
+                        if (current && [...typeSelect.options].some(o => o.value === current)) {
+                            typeSelect.value = current;
+                        } else if (pw && pw.value && [...typeSelect.options].some(o => o.value === pw.value)) {
                             typeSelect.value = pw.value;
-                        } else {
-                            typeSelect.value = typeSelect.options[0]?.value || "sdxl";
                         }
                     } catch {}
                 }
+                typeSelect.addEventListener("mousedown", loadPrepTemplates);
 
                 // Style (droite) — peuplé depuis /api/styles
                 const styleDiv = document.createElement("div");

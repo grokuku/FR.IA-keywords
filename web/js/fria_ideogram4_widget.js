@@ -164,10 +164,11 @@
                 container.appendChild(templateDiv);
 
                 async function loadTemplates() {
-                    templateSelect.innerHTML = '<option value="ideogram4">Ideogram 4</option>';
+                    templateSelect.innerHTML = '<option value="">-- Chargement --</option>';
                     try {
                         const items = await apiGet("prompts/templates");
-                        if (Array.isArray(items)) {
+                        if (Array.isArray(items) && items.length > 0) {
+                            const current = templateSelect.value;
                             templateSelect.innerHTML = '';
                             items.forEach(t => {
                                 const o = document.createElement("option");
@@ -175,9 +176,13 @@
                                 o.textContent = t.name || t.prompt_type;
                                 templateSelect.appendChild(o);
                             });
+                            if (current && [...templateSelect.options].some(o => o.value === current)) {
+                                templateSelect.value = current;
+                            }
                         }
                     } catch {}
                 }
+                templateSelect.addEventListener("mousedown", loadTemplates);
 
                 // ---- Generate ----
                 const generateBtn = document.createElement("button");
