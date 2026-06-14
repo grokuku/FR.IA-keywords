@@ -499,7 +499,7 @@
           var pub = t.is_public ? ' 🌐' : ' 🔒';
           var isDefault = !!t.is_default;
           var isAdmin = currentUser && currentUser.role === 'admin';
-          var canEdit = t.editable || (isAdmin && !t.user_id);
+          var canEdit = t.editable || isAdmin;
           html += '<div class="fria-tmpl-row flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' +
             '" onclick="editTemplateTab(' + t.id + ')" title="Cliquer pour editer">' +
             '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' +

@@ -75,8 +75,8 @@ def single_template(template_id):
     if not row:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
-    # Admin peut editer les templates sans proprietaire
-    can_edit = (row['user_id'] == user_id) or (is_admin(user_id) and not row['user_id'])
+    # Admin peut editer/supprimer n'importe quel template
+    can_edit = (row['user_id'] == user_id) or is_admin(user_id)
     if not can_edit:
         conn.close()
         return jsonify({'error': 'Not editable'}), 403

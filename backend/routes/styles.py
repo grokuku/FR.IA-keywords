@@ -79,7 +79,7 @@ def single_style(style_id):
         conn.close()
         return jsonify({'error': 'Not found'}), 404
     # Admin peut editer les styles sans proprietaire
-    can_edit = (row['user_id'] == user_id) or (is_admin(user_id) and not row['user_id'])
+    can_edit = (row['user_id'] == user_id) or is_admin(user_id)
     if not can_edit:
         conn.close()
         return jsonify({'error': 'Not editable'}), 403
