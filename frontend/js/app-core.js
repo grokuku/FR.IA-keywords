@@ -1,0 +1,317 @@
+
+    const API = '/api';
+    let allKeywords = [];
+    let sectionsList = [];
+    let currentUser = null;
+    let semanticCache = null;  // { text, results: [...], timestamp }
+
+    // === DOM refs ===
+    const $ = id => document.getElementById(id);
+    const searchInput = $('search-input');
+    const searchNegInput = $('search-neg-input');
+    const semanticInput = $('search-semantic-input');
+    const sectionSelect = $('section-select');
+    const subsectionSelect = $('subsection-select');
+    const emptyState = $('empty-state');
+    const resultsArea = $('results-area');
+    const filtersBar = $('filters-bar');
+    const tableBody = $('table-body');
+    const footerStats = $('footer-stats');
+    const countDisplay = $('count-display');
+    const countLabel = $('count-label');
+    const scoreHeader = $('score-header');
+    const semanticLoading = $('semantic-loading');
+    const userArea = $('user-area');
+    const btnLogin = $('btn-login');
+    const userInfo = $('user-info');
+    const userAvatar = $('user-avatar');
+    const userName = $('user-name');
+    const btnAdmin = $('btn-admin');
+    const emptyTitle = $('empty-title');
+    const emptyDesc = $('empty-desc');
+    const emptyBtn = $('empty-btn');
+    const emptyImportBtn = $('empty-import-btn');
+    const emptySvg = $('empty-svg');
+
+    let textTimer = null;
+    let semanticTimer = null;
+
+    // === Init ===
+
+    const enhOutput = $('enhance-output');
+
+    let hiddenKWs = {};  // { id: true } — mots-cles masques localement
+
+    async function safeJson(res) {
+      try { return await res.json(); } catch(e) { return { error: 'Erreur serveur ' + res.status }; }
+    }
+
+    function updateStats(stats) {
+      var parts = [];
+      if (stats.total > 0) parts.push(stats.total + ' mots-cles');
+      if (stats.section_count > 0) parts.push(stats.section_count + ' sections');
+      if (stats.nsfw_total > 0) parts.push(stats.nsfw_total + ' NSFW');
+      if (stats.generated_total > 0) parts.push(stats.generated_total + ' prompts generes');
+      footerStats.textContent = parts.length > 0 ? parts.join(' · ') : 'Base vide — importez un fichier pour commencer';
+    }
+
+    document.addEventListener('DOMContentLoaded', initApp);
+
+    /* ── Main tabs (Prompt Helper / Style / Template / Keywords Manager) ── */
+    function switchMainTab(tab) {
+      const tabs = {
+        prompt: document.getElementById('tab-prompt-helper'),
+        style: document.getElementById('tab-styles'),
+        template: document.getElementById('tab-templates'),
+        keywords: document.getElementById('tab-keywords-manager')
+      };
+      const buttons = {
+        prompt: document.getElementById('tab-btn-prompt'),
+        style: document.getElementById('tab-btn-style'),
+        template: document.getElementById('tab-btn-template'),
+        keywords: document.getElementById('tab-btn-keywords')
+      };
+
+      Object.keys(tabs).forEach(function(key) {
+        if (tabs[key]) {
+          if (key === tab) tabs[key].classList.remove('hidden');
+          else tabs[key].classList.add('hidden');
+        }
+      });
+
+      Object.keys(buttons).forEach(function(key) {
+        var btn = buttons[key];
+        if (!btn) return;
+        if (key === tab) {
+          btn.classList.remove('text-white/70', 'hover:text-white', 'hover:bg-white/10');
+          btn.classList.add('bg-white/20', 'text-white');
+        } else {
+          btn.classList.remove('bg-white/20', 'text-white');
+          btn.classList.add('text-white/70', 'hover:text-white', 'hover:bg-white/10');
+        }
+      });
+
+      if (tab === 'style') loadStylesTab();
+      if (tab === 'template') loadTemplate();
+    }
+
+    /* ── Theme system ── */
+    function setTheme(name) {
+      document.documentElement.setAttribute('data-theme', name);
+      localStorage.setItem('theme', name);
+    }
+
+    function toggleThemeMode() {
+      const html = document.documentElement;
+      const isDark = html.classList.toggle('dark');
+      localStorage.setItem('theme-mode', isDark ? 'dark' : 'light');
+      document.getElementById('theme-icon').textContent = isDark ? '☀️' : '🌙';
+    }
+
+    function initThemeUI() {
+      var sel = document.getElementById('theme-select');
+      if (sel) {
+        var saved = localStorage.getItem('theme') || 'nord';
+        var validThemes = ['solarized','nord','catppuccin','gruvbox','material'];
+        if (validThemes.indexOf(saved) === -1) saved = 'nord';
+        sel.value = saved;
+      }
+      document.getElementById('theme-icon').textContent =
+        document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+    }
+
+    document.addEventListener('DOMContentLoaded', initThemeUI);
+
+    async function initApp() {
+      await checkAuth();
+      searchInput?.addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(applyFilters, 300); });
+      semanticInput?.addEventListener('input', () => { clearTimeout(semanticTimer); semanticTimer = setTimeout(applyFilters, 400); });
+      searchNegInput?.addEventListener('input', () => { clearTimeout(textTimer); textTimer = setTimeout(applyFilters, 300); });
+      sectionSelect?.addEventListener('change', function(){
+        semanticCache = null;
+        loadSubsections(this.value);
+        applyFilters();
+      });
+      subsectionSelect?.addEventListener('change', function(){ semanticCache = null; applyFilters(); });
+      document.querySelectorAll('input[name="nsfw-filter"]').forEach(el => el.addEventListener('change', function(){ semanticCache = null; applyFilters(); }));
+    searchNegInput?.addEventListener('change', function(){ semanticCache = null; });
+      var confSlider = document.getElementById('filter-confidence');
+      var confNum = document.getElementById('filter-confidence-num');
+      function applyConfidence() {
+        var n = parseInt(confSlider.value);
+        if (isNaN(n)) n = 0;
+        if (n < 0) n = 0; if (n > 100) n = 100;
+        confSlider.value = n;
+        confNum.value = n;
+        semanticCache = null;  // forcer un re-fetch avec le nouveau %
+        loadKeywords();
+      }
+      if (confSlider) {
+        confSlider.addEventListener('input', function() { confNum.value = this.value; applyConfidence(); });
+      }
+      if (confNum) {
+        confNum.addEventListener('change', function() { confSlider.value = this.value; applyConfidence(); });
+      }
+      if (currentUser) await checkData();
+      if (currentUser) { loadEnhancerConfig(); loadEPState(); }
+    }
+
+    // --- Reset functions ---
+    function toggleHideKeyword(id) {
+      if (hiddenKWs[id]) delete hiddenKWs[id];
+      else hiddenKWs[id] = true;
+      renderTable(allKeywords);
+    }
+
+    function showAllHidden() {
+      hiddenKWs = {};
+      renderTable(allKeywords);
+    }
+
+    function resetFilters() {
+      document.getElementById('search-input').value = '';
+      document.getElementById('search-neg-input').value = '';
+      document.getElementById('search-semantic-input').value = '';
+      document.getElementById('section-select').value = '';
+      document.getElementById('subsection-select').value = '';
+      document.getElementById('subsection-select').innerHTML = '<option value="">Toutes sous-sections</option>';
+      document.querySelectorAll('input[name="nsfw-filter"]').forEach(function(r){ r.checked = r.value === ''; });
+      document.getElementById('filter-confidence').value = 0;
+      document.getElementById('filter-confidence-num').value = 0;
+      semanticCache = null;
+      applyFilters();
+    }
+    function resetElementsPicker() {
+      genElements = [];
+      genRender();
+      saveEPState();
+    }
+    function resetEnhancer() {
+      document.getElementById('enhance-input').value = '';
+      document.getElementById('enhance-output').value = '';
+      document.getElementById('btn-copy-enhance').classList.add('hidden');
+      document.getElementById('btn-toggle-view').classList.add('hidden');
+      saveEnhancerSettings();
+    }
+
+    function getNsfwFilter() {
+      const checked = document.querySelector('input[name="nsfw-filter"]:checked');
+      return checked ? checked.value : '';
+    }
+
+    async function checkAuth() {
+      try {
+        const res = await fetch(API + '/auth/me');
+        if (res.ok) {
+          currentUser = await res.json();
+          btnLogin.classList.add('hidden');
+          userInfo.classList.remove('hidden');
+          userInfo.classList.add('flex');
+          userAvatar.src = currentUser.avatar_url;
+          userName.textContent = currentUser.display_name;
+          if (currentUser.role === 'admin') btnAdmin.classList.remove('hidden');
+          else btnAdmin.classList.add('hidden');
+          document.getElementById('btn-members').classList.remove('hidden');
+          loadLayout();
+        } else {
+          currentUser = null;
+          btnLogin.classList.remove('hidden');
+          userInfo.classList.add('hidden');
+          userInfo.classList.remove('flex');
+        }
+        showEmptyState(currentUser !== null);
+      } catch {
+        currentUser = null;
+        showEmptyState(false);
+      }
+    }
+
+    function showEmptyState(loggedIn) {
+      emptyState.classList.remove('hidden');
+      emptyState.style.display = 'flex';
+      resultsArea.classList.add('hidden');
+      var filtersInPanel = document.getElementById('filters-bar');
+      if (filtersInPanel) filtersInPanel.classList.add('hidden');
+      var mc = document.getElementById('main-content');
+      if (mc) mc.style.display = loggedIn ? '' : '';
+      var panels = document.getElementById('panels-container');
+      if (panels) panels.style.display = loggedIn ? 'flex' : 'none';
+      if (loggedIn) {
+        emptyTitle.textContent = 'Base de donnees vide';
+        emptyDesc.innerHTML = 'Aucun mot-cle pour le moment. Importe un fichier .md pour commencer.';
+        emptyBtn.classList.add('hidden');
+        emptyImportBtn.classList.remove('hidden');
+      } else {
+        emptyTitle.textContent = 'Connexion requise';
+        emptyDesc.textContent = 'Connecte-toi avec Discord pour acceder aux mots-cles.';
+        emptyBtn.classList.remove('hidden');
+        emptyImportBtn.classList.add('hidden');
+      }
+    }
+
+    async function logout() {
+      document.getElementById('admin-panel').classList.add('hidden');
+      document.getElementById('members-panel').classList.add('hidden');
+      document.getElementById('main-content').style.display = 'none';
+      btnAdmin.classList.add('hidden');
+      document.getElementById('btn-members').classList.add('hidden');
+      await fetch(API + '/auth/logout');
+      currentUser = null;
+      btnLogin.classList.remove('hidden');
+      userInfo.classList.add('hidden');
+      userInfo.classList.remove('flex');
+      showEmptyState(false);
+      footerStats.textContent = 'Deconnecte.';
+    }
+
+    function discordLogin() {
+      const w = 600, h = 700;
+      const left = (screen.width - w) / 2;
+      const top = (screen.height - h) / 2;
+      window.open(API + '/auth/discord/login', 'Discord Login', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',popup=1');
+    }
+
+    window.addEventListener('message', async (event) => {
+      if (event.data && event.data.type === 'auth_success') {
+        await checkAuth();
+        if (currentUser) await checkData();
+      }
+    });
+
+    async function checkData() {
+      try {
+        const res = await fetch(API + '/stats');
+        if (!res.ok) throw new Error('Not authorized');
+        const stats = await res.json();
+        const hasData = (stats.total || 0) > 0;
+        updateUIState(hasData, stats);
+        if (hasData) {
+          document.getElementById('main-content').style.display = '';
+          await loadSections();
+          await loadKeywords();
+        } else {
+          showEmptyState(true);
+        }
+      } catch {
+        updateUIState(false, {});
+      }
+    }
+
+    function updateUIState(hasData, stats) {
+      if (hasData) {
+        emptyState.classList.add('hidden');
+        emptyState.style.display = 'none';
+        resultsArea.classList.remove('hidden');
+        var filtersInPanel = document.getElementById('filters-bar');
+        if (filtersInPanel) filtersInPanel.classList.remove('hidden');
+        var panels = document.getElementById('panels-container');
+        if (panels) panels.style.display = 'flex';
+        updateStats(stats);
+      } else {
+        emptyState.classList.add('hidden');
+        resultsArea.classList.add('hidden');
+        var filtersInPanel = document.getElementById('filters-bar');
+        if (filtersInPanel) filtersInPanel.classList.add('hidden');
+        if (currentUser) footerStats.textContent = 'Connecte : ' + currentUser.display_name;
+      }
+    }

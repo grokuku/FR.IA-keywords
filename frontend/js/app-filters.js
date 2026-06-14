@@ -1,0 +1,1134 @@
+
+    // === Save Filter ===
+    var loadedFilterId = null;
+
+    function openSaveFilter() {
+      document.getElementById('modal-save-filter').classList.remove('hidden');
+      document.getElementById('modal-save-filter').classList.add('flex');
+      document.getElementById('save-filter-name').focus();
+      makeModalDraggable('save-modal-header', 'save-filter-modal');
+    }
+    function closeSaveFilter() {
+      document.getElementById('modal-save-filter').classList.add('hidden');
+      document.getElementById('modal-save-filter').classList.remove('flex');
+    }
+    function discardFilter() {
+      loadedFilterId = null;
+      document.getElementById('filter-loaded-name').classList.add('hidden');
+      document.getElementById('btn-filter-save').classList.add('hidden');
+      document.getElementById('btn-filter-discard').classList.add('hidden');
+    }
+
+    function getFilterConfig() {
+      return {
+        section: document.getElementById('section-select').value,
+        subsection: document.getElementById('subsection-select').value,
+        search_text: document.getElementById('search-input').value,
+        search_neg: document.getElementById('search-neg-input').value,
+        semantic_text: document.getElementById('search-semantic-input').value,
+        nsfw_filter: getNsfwFilter(),
+        min_confidence: parseFloat(document.getElementById('filter-confidence').value) / 100,
+        hidden_kw_ids: Object.keys(hiddenKWs).map(Number)
+      };
+    }
+
+    function applyFilterConfig(config) {
+      var c = config || {};
+      document.getElementById('section-select').value = c.section || '';
+      document.getElementById('subsection-select').value = c.subsection || '';
+      document.getElementById('search-input').value = c.search_text || '';
+      document.getElementById('search-neg-input').value = c.search_neg || '';
+      document.getElementById('search-semantic-input').value = c.semantic_text || '';
+      var nsfw = c.nsfw_filter !== undefined ? c.nsfw_filter : '';
+      document.querySelectorAll('input[name="nsfw-filter"]').forEach(function(r){ r.checked = r.value === nsfw; });
+      document.getElementById('filter-confidence').value = Math.round((c.min_confidence || 0) * 100);
+      document.getElementById('filter-confidence-num').value = Math.round((c.min_confidence || 0) * 100);
+      // Restaurer les mots masqués (👁️)
+      hiddenKWs = {};
+      if (c.hidden_kw_ids && Array.isArray(c.hidden_kw_ids)) {
+        c.hidden_kw_ids.forEach(function(id){ hiddenKWs[id] = true; });
+      }
+      // Charger les sous-sections si une section est sélectionnée
+      if (c.section) {
+        loadSubsections(c.section);
+      }
+      applyFilters(true);
+    }
+
+    async function saveCurrentFilter() {
+      if (!loadedFilterId) return;
+      var config = getFilterConfig();
+      try {
+        var res = await fetch(API + '/filters/' + loadedFilterId, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({config: config})
+        });
+        if (res.ok) {
+          var pv = await fetch(API + '/filters/' + loadedFilterId + '/preview');
+          var pd = pv.ok ? await pv.json() : null;
+          var preview = pd && pd.keywords && pd.keywords.length > 0 ? ' | Apercu: ' + pd.keywords.slice(0,5).join(', ') : '';
+          showModal('Filtre', 'Filtre mis a jour ! ' + (pd ? pd.total : '?') + ' mots-cles dans le cache.' + preview, 'success');
+        } else {
+          var err = await res.json().catch(function(){ return {}; });
+          showModal('Erreur', err.error || '', 'error');
+        }
+      } catch (err) {
+        showModal('Erreur', err.message || 'Une erreur est survenue', 'error');
+      }
+    }
+
+    async function saveFilter() {
+      var name = document.getElementById('save-filter-name').value.trim();
+      if (!name) { showModal('Filtre', 'Donne un nom au filtre', 'error'); return; }
+      var cat = document.getElementById('save-filter-cat').value.trim();
+      var nsfw = document.querySelector('input[name="save-filter-nsfw"]:checked');
+      var nsfwVal = nsfw ? parseInt(nsfw.value) : 0;
+      var isPublic = document.getElementById('save-filter-public').checked ? 1 : 0;
+      var config = getFilterConfig();
+      try {
+        var res = await fetch(API + '/filters', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name: name, category: cat, nsfw: nsfwVal, is_public: isPublic, config: config})
+        });
+        if (res.ok) {
+          var data = await res.json();
+          closeSaveFilter();
+          document.getElementById('save-filter-name').value = '';
+          document.getElementById('save-filter-cat').value = '';
+          var pvw = data.preview && data.preview.length > 0 ? '\n\nApercu: ' + data.preview.join(', ') : '';
+          showModal('Filtre', 'Sauvegarde ! ' + data.count + ' mots-cles dans le cache.' + pvw, 'success');
+        } else {
+          var err = await res.json().catch(function(){ return {}; });
+          showModal('Erreur', err.error || 'Impossible de sauvegarder', 'error');
+        }
+      } catch (err) {
+        showModal('Erreur', err.message || 'Une erreur est survenue', 'error');
+      }
+    }
+
+    function openFilterListModal() {
+      document.getElementById('modal-filter-pick').classList.remove('hidden');
+      document.getElementById('modal-filter-pick').classList.add('flex');
+      fpTargetId = -1;
+      document.getElementById('fp-owner').value = 'mine';
+      loadFilterList();
+    }
+
+    function loadFilterIntoPanel(filterId) {
+      fetch(API + '/filters/' + filterId + '/preview').then(function(res){
+        return res.json();
+      }).then(function(data){
+        if (data.filter_type === 'union') {
+          // Union filter: show union info in the name, don't apply config
+          resetFilters();
+          loadedFilterId = filterId;
+          var nameEl = document.getElementById('filter-loaded-name');
+          var memberNames = (data.union_members || []).map(function(m){ return m.name; }).join(', ');
+          nameEl.textContent = '[Union] ' + (data.name || '') + ' (' + (data.total || 0) + ' kw) → ' + memberNames;
+          nameEl.classList.remove('hidden');
+          document.getElementById('btn-filter-save').classList.add('hidden');
+          document.getElementById('btn-filter-discard').classList.remove('hidden');
+        } else {
+          applyFilterConfig(data.config || {});
+          loadedFilterId = filterId;
+          var nameEl = document.getElementById('filter-loaded-name');
+          nameEl.textContent = data.name || 'Filtre';
+          nameEl.classList.remove('hidden');
+          document.getElementById('btn-filter-save').classList.remove('hidden');
+          document.getElementById('btn-filter-discard').classList.remove('hidden');
+        }
+        closeFilterPick();
+      }).catch(function(){});
+    }
+
+
+    // === Presets IA + Styles + Enhance ===
+
+    // -- Presets --
+
+    function toggleMergedSettings() {
+      var m = document.getElementById('modal-user-settings');
+      var open = !m.classList.contains('hidden');
+      if (open) { closeMergedSettings(); return; }
+      m.classList.remove('hidden');
+      m.classList.add('flex');
+      makeModalDraggable('usettings-modal-header', 'usettings-modal');
+      var providerBtn = m.querySelector('.tab-btn[data-tab="provider"]');
+      switchSettingsTab('provider', providerBtn || m.querySelector('.tab-btn'));
+      loadPresets();
+      loadApiKeySettings();
+      if (currentUser && currentUser.role === 'admin') {
+        document.getElementById('preset-global-label').style.display = '';
+      }
+    }
+
+    function closeMergedSettings() {
+      document.getElementById('modal-user-settings').classList.add('hidden');
+      document.getElementById('modal-user-settings').classList.remove('flex');
+    }
+
+    async function loadApiKeySettings() {
+      loadApiKey();
+    }
+
+    async function _loadApiKeySettings() {
+      var keyEl = document.getElementById('settings-api-key');
+      var userEl = document.getElementById('settings-username');
+      try {
+        var me = await fetch(API + '/auth/me').then(function(r){ return safeJson(r); });
+        if (me && me.username) userEl.textContent = me.username;
+        var res = await fetch(API + '/auth/token');
+        var data = await safeJson(res);
+        if (data && data.token) keyEl.value = data.token;
+      } catch {}
+    }
+
+    function switchSettingsTab(tab, btn) {
+      document.querySelectorAll('#modal-user-settings .tab-content').forEach(function(el){ el.classList.add('hidden'); });
+      document.querySelectorAll('#modal-user-settings .tab-btn').forEach(function(el){
+        el.classList.remove('text-indigo-600', 'dark:text-indigo-400', 'border-indigo-500', 'dark:border-indigo-400');
+        el.classList.add('text-slate-500', 'dark:text-slate-400', 'border-transparent');
+      });
+      document.getElementById('tab-' + tab).classList.remove('hidden');
+      btn.classList.remove('text-slate-500', 'dark:text-slate-400', 'border-transparent');
+      btn.classList.add('text-indigo-600', 'dark:text-indigo-400', 'border-indigo-500', 'dark:border-indigo-400');
+    }
+
+    async function loadStylesTab() {
+      var el = document.getElementById('styles-tab-list');
+      try {
+        var res = await fetch(API + '/styles');
+        var list = await safeJson(res);
+        if (!Array.isArray(list)) { el.innerHTML = '<p class="text-xs text-slate-400">Aucun style</p>'; return; }
+        var html = '';
+        list.forEach(function(s){
+          var name = s.name || '?';
+          var author = s.owner_name || '?';
+          var pub = s.is_public ? ' 🌐' : ' 🔒';
+          var canEdit = s.user_id === (currentUser ? currentUser.id : '');
+          html += '<div class="flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700">' +
+            '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' +
+            '<span class="text-xs text-slate-400 ml-2">par ' + author + pub + '</span></div>' +
+            '<div class="flex gap-1.5">';
+          if (canEdit) html += '<button onclick="editStyleTab(' + s.id + ')" class="text-xs text-indigo-400 hover:text-indigo-600 px-1.5 py-0.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-900/20">Edit</button>';
+          html += '<button onclick="deleteStyle(' + s.id + ')" class="text-xs text-red-400 hover:text-red-600 px-1.5 py-0.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20">&times;</button></div></div>';
+        });
+        el.innerHTML = html || '<p class="text-xs text-slate-400">Aucun style</p>';
+      } catch { el.innerHTML = '<p class="text-xs text-red-400">Erreur de chargement</p>'; }
+    }
+
+    function closeUserSettings() {
+      document.getElementById('modal-user-settings').classList.add('hidden');
+      document.getElementById('modal-user-settings').classList.remove('flex');
+    }
+
+    function checkPresetUrl() {
+      var url = document.getElementById('preset-form-url').value.trim();
+      var warn = document.getElementById('preset-url-warning');
+      var isLocal = /(localhost|127\.0\.0\.\d+|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+)/i.test(url);
+      if (isLocal) warn.classList.remove('hidden');
+      else warn.classList.add('hidden');
+    }
+
+    function clearPresetForm() {
+      document.getElementById('preset-form-name').value = '';
+      document.getElementById('preset-form-url').value = '';
+      document.getElementById('preset-form-key').value = '';
+      document.getElementById('preset-form-model').value = '';
+      document.getElementById('preset-form-global').checked = false;
+      document.getElementById('preset-models-dropdown').classList.add('hidden');
+      document.getElementById('preset-models-dropdown').innerHTML = '';
+    }
+
+    async function loadPresets() {
+      try {
+        var res = await fetch(API + '/presets');
+        if (!res.ok) {
+          var txt = await res.text().catch(function(){ return ''; });
+          console.error('loadPresets failed:', res.status, txt.substring(0,200));
+          return;
+        }
+        var presets = await res.json();
+        renderPresetsList(presets);
+        // Remplir le dropdown de l'enhancer
+        var sel = document.getElementById('enhance-preset');
+        sel.innerHTML = '<option value="">-- Preset IA --</option>';
+        presets.forEach(function(p) {
+          var opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name + (p.is_global ? ' 🌐' : '') + (p.is_client_side ? ' 🖥️' : '');
+          sel.appendChild(opt);
+        });
+        // Restaurer si sauvegarde
+        if (currentUser && currentUser.settings && currentUser.settings.enhancePresetId) {
+          sel.value = currentUser.settings.enhancePresetId;
+        }
+      } catch (e) {}
+    }
+
+    function renderPresetsList(presets) {
+      var el = document.getElementById('presets-list');
+      if (!presets.length) { el.innerHTML = '<p class="text-xs text-slate-400">Aucun preset. Creez-en un !</p>'; return; }
+      var html = '';
+      presets.forEach(function(p) {
+        var canEdit = (!p.is_global && p.user_id === (currentUser ? currentUser.id : '')) || (currentUser && currentUser.role === 'admin');
+        html += '<div class="flex items-center justify-between py-1 px-2 rounded text-xs ' + (p.is_global ? 'bg-indigo-50 dark:bg-indigo-900/20' : 'bg-slate-50 dark:bg-slate-800/50') + '">';
+        html += '<div><span class="font-medium text-slate-700 dark:text-slate-200">' + p.name + '</span>';
+        if (p.is_global) html += ' <span class="text-indigo-500">🌐 global</span>';
+        if (p.is_client_side) html += ' <span class="text-amber-500">🖥️ client</span>';
+        if (p.owner_name && !p.is_global) html += ' <span class="text-slate-400">(' + p.owner_name + ')</span>';
+        html += '<br><span class="text-slate-400">' + p.model + ' @ ' + p.base_url + '</span></div>';
+        html += '<div class="flex gap-1">';
+        if (canEdit) {
+          html += '<button onclick="editPreset(' + p.id + ')" class="text-xs text-indigo-500 hover:text-indigo-700">Edit</button>';
+          html += '<button onclick="dupPreset(' + p.id + ')" class="text-xs text-slate-400 hover:text-slate-600">Dup</button>';
+          html += '<button onclick="delPreset(' + p.id + ')" class="text-xs text-rose-400 hover:text-rose-600">Del</button>';
+        }
+        html += '</div></div>';
+      });
+      el.innerHTML = html;
+    }
+
+    function editPreset(id) {
+      // Charger dans le formulaire (besoin de refaire un fetch)
+      fetch(API + '/presets').then(function(r){ return r.json(); }).then(function(ps){
+        var p = ps.find(function(x){ return x.id === id; });
+        if (!p) return;
+        document.getElementById('preset-form-name').value = p.name;
+        document.getElementById('preset-form-url').value = p.base_url;
+        document.getElementById('preset-form-model').value = p.model;
+        document.getElementById('preset-form-key').value = '';
+        document.getElementById('preset-form-global').checked = p.is_global;
+        // Stocker l'ID pour un update
+        document.getElementById('preset-form-name').dataset.editId = id;
+      }).catch(function(){});
+    }
+
+    async function savePreset() {
+      var name = document.getElementById('preset-form-name').value.trim();
+      var url = document.getElementById('preset-form-url').value.trim();
+      var key = document.getElementById('preset-form-key').value.trim();
+      var model = document.getElementById('preset-form-model').value.trim();
+      var isGlobal = document.getElementById('preset-form-global').checked ? 1 : 0;
+      var isClient = document.getElementById('preset-form-client').checked ? 1 : 0;
+      var editId = document.getElementById('preset-form-name').dataset.editId;
+
+      if (!name) { showModal('Preset', 'Nom requis', 'error'); return; }
+      if (!url) { showModal('Preset', 'URL requise', 'error'); return; }
+
+      try {
+        var body = { name: name, base_url: url, api_key: key, model: model, is_global: isGlobal, is_client_side: isClient };
+        var method = 'POST';
+        var endpoint = '/presets';
+        if (editId) {
+          method = 'PUT';
+          endpoint = '/presets/' + editId;
+          if (!key) delete body.api_key;  // garder l'ancienne cle si vide
+        }
+        var res = await fetch(API + endpoint, {
+          method: method,
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw await safeJson(res);
+        clearPresetForm();
+        document.getElementById('preset-form-name').dataset.editId = '';
+        loadPresets();
+        showModal('Preset', editId ? 'Preset mis a jour' : 'Preset cree', 'success');
+      } catch (err) {
+        showModal('Erreur', (err.error || err.message || 'Erreur'), 'error');
+      }
+    }
+
+    async function dupPreset(id) {
+      try {
+        var res = await fetch(API + '/presets/' + id + '/duplicate', { method: 'POST' });
+        if (!res.ok) throw await safeJson(res);
+        loadPresets();
+        showModal('Preset', 'Preset duplique', 'success');
+      } catch (err) {
+        showModal('Erreur', (err.error || ''), 'error');
+      }
+    }
+
+    async function delPreset(id) {
+      showConfirm('Supprimer', 'Supprimer ce preset ?', async function(ok){
+        if (!ok) return;
+        try {
+          var res = await fetch(API + '/presets/' + id, { method: 'DELETE' });
+          if (!res.ok) throw await safeJson(res);
+          loadPresets();
+        } catch (err) {}
+      });
+    }
+
+    async function fetchModelsForForm() {
+      var url = document.getElementById('preset-form-url').value.trim();
+      var key = document.getElementById('preset-form-key').value.trim();
+      var isClient = document.getElementById('preset-form-client').checked;
+      if (!url) { showModal('URL', 'Saisis l\'URL du serveur d\'abord', 'error'); return; }
+
+      try {
+        var models;
+        if (isClient) {
+          // ── Mode client-side coche : appel direct depuis le navigateur ──────────
+          // (necessite CORS active cote serveur LLM, defaut pour Ollama, LM Studio, etc.)
+          var headers = {'Content-Type': 'application/json'};
+          if (key) headers['Authorization'] = 'Bearer ' + key;
+          var r = await fetch(url.replace(/\/+$/, '') + '/models', { headers: headers });
+          if (!r.ok) {
+            var errText = await r.text().catch(function(){ return ''; });
+            throw { error: 'HTTP ' + r.status + (errText ? ': ' + errText.substring(0, 200) : ' — verifie que CORS est active sur le serveur LLM') };
+          }
+          var data = await r.json();
+          // Format OpenAI standard : {data: [{id, owned_by}, ...]}
+          // Certains serveurs (Ollama) utilisent {models: [{name, ...}]}
+          var raw = (data && data.data) || (data && data.models) || [];
+          models = raw.map(function(m) {
+            if (typeof m === 'string') return { id: m, owned_by: '' };
+            return { id: m.id || m.name || '', owned_by: m.owned_by || '' };
+          });
+        } else {
+          // ── Mode cloud : le backend fait l'appel ──────────
+          var r2 = await fetch(API + '/presets/list-models', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ base_url: url, api_key: key })
+          });
+          if (!r2.ok) throw await safeJson(r2);
+          models = await safeJson(r2);
+        }
+        var dd = document.getElementById('preset-models-dropdown');
+        dd.innerHTML = '';
+        models.forEach(function(m) {
+          var opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.id + (m.owned_by ? ' (' + m.owned_by + ')' : '');
+          dd.appendChild(opt);
+        });
+        dd.classList.remove('hidden');
+        dd.onchange = function() { document.getElementById('preset-form-model').value = this.value; };
+        if (models.length === 0) showModal('Modeles', 'Aucun modele trouve', 'error');
+      } catch (e) {
+        showModal('Erreur', (e.error || e.message || 'Impossible de lister les modeles'), 'error');
+      }
+    }
+
+    // -- Templates Prompt --
+
+    var _tmplCache = {};
+
+    function renderExamples(examples) {
+      var container = document.getElementById('tmpl-examples-list');
+      if (!examples || examples.length === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-400 italic">Aucun exemple</p>';
+        return;
+      }
+      container.innerHTML = examples.map(function(ex, i) {
+        return '<div class="flex items-start gap-1.5 p-1.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">'
+          + '<span class="flex-1 text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap" style="word-break:break-word;">' + escapeHtml(ex) + '</span>'
+          + '<button onclick="removeTemplateExample(' + i + ')" class="text-xs text-rose-400 hover:text-rose-600 p-0.5">✕</button>'
+          + '</div>';
+      }).join('');
+    }
+
+    function getExamples() {
+      var items = document.querySelectorAll('#tmpl-examples-list > div');
+      var examples = [];
+      items.forEach(function(div) {
+        var span = div.querySelector('span');
+        if (span) examples.push(span.textContent);
+      });
+      return examples;
+    }
+
+    function addTemplateExample() {
+      var input = document.getElementById('tmpl-example-input');
+      var text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      var examples = getExamples();
+      examples.push(text);
+      renderExamples(examples);
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'tmpl-example-input') {
+        addTemplateExample();
+      }
+    });
+
+    function removeTemplateExample(idx) {
+      var examples = getExamples();
+      examples.splice(idx, 1);
+      renderExamples(examples);
+    }
+
+    async function loadTemplate() {
+      var pt = document.getElementById('tmpl-type').value;
+      var fmt = document.getElementById('tmpl-format').value;
+      var sysEl = document.getElementById('tmpl-system-prompt');
+      var lbl = document.getElementById('tmpl-source-label');
+      try {
+        var res = await fetch(API + '/prompts/templates?prompt_type=' + pt + '&output_format=' + fmt);
+        var list = await safeJson(res);
+        var tmpl = list.find(function(t){ return t.editable; }) || list.find(function(t){ return t.is_default; });
+        if (tmpl) {
+          sysEl.value = tmpl.system_prompt || '';
+          renderExamples(tmpl.examples || []);
+          lbl.textContent = tmpl.editable ? 'personnalise' : 'par defaut';
+          _tmplCache[pt + ':' + fmt] = tmpl;
+        } else {
+          sysEl.value = '';
+          renderExamples([]);
+          lbl.textContent = 'aucun';
+          _tmplCache[pt + ':' + fmt] = null;
+        }
+      } catch (err) {
+        showModal('Erreur', 'Impossible de charger le template: ' + err.message, 'error');
+      }
+    }
+
+    async function saveTemplate() {
+      var pt = document.getElementById('tmpl-type').value;
+      var fmt = document.getElementById('tmpl-format').value;
+      var sysEl = document.getElementById('tmpl-system-prompt');
+      var examples = getExamples();
+      try {
+        var res = await fetch(API + '/prompts/templates', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            prompt_type: pt,
+            output_format: fmt,
+            system_prompt: sysEl.value,
+            examples: examples
+          })
+        });
+        if (!res.ok) throw await safeJson(res);
+        showModal('Template', 'Template personnalise sauvegarde !', 'success');
+        loadTemplate();
+      } catch (err) {
+        showModal('Erreur', 'Impossible de sauvegarder: ' + err.message, 'error');
+      }
+    }
+
+    async function resetTemplate() {
+      var pt = document.getElementById('tmpl-type').value;
+      var fmt = document.getElementById('tmpl-format').value;
+      var cached = _tmplCache[pt + ':' + fmt];
+      if (cached && cached.editable && cached.id) {
+        try {
+          await fetch(API + '/prompts/templates/' + cached.id, { method: 'DELETE' });
+        } catch {}
+      }
+      try {
+        var res = await fetch(API + '/prompts/templates/defaults');
+        var defaults = await safeJson(res);
+        var def = defaults.find(function(t){ return t.prompt_type === pt && t.output_format === fmt; });
+        if (def) {
+          document.getElementById('tmpl-system-prompt').value = def.system_prompt || '';
+          renderExamples(def.examples || []);
+          document.getElementById('tmpl-source-label').textContent = 'par defaut';
+          _tmplCache[pt + ':' + fmt] = def;
+        }
+      } catch {}
+    }
+
+    function exportTemplate() {
+      var pt = document.getElementById('tmpl-type').value;
+      var fmt = document.getElementById('tmpl-format').value;
+      var sys = document.getElementById('tmpl-system-prompt').value;
+      var examples = getExamples();
+      var data = {
+        prompt_type: pt,
+        output_format: fmt,
+        system_prompt: sys,
+        examples: examples
+      };
+      var blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'template_' + pt + '_' + fmt + '.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    document.addEventListener('change', function(e) {
+      if (e.target.id === 'tmpl-type' || e.target.id === 'tmpl-format') {
+        loadTemplate();
+      }
+    });
+
+    // -- Styles --
+
+    function openStylesModal() {
+      document.getElementById('modal-styles').classList.remove('hidden');
+      document.getElementById('modal-styles').classList.add('flex');
+      makeModalDraggable('styles-modal-header', 'styles-modal');
+      loadStyles();
+    }
+
+    function closeStylesModal() {
+      document.getElementById('modal-styles').classList.add('hidden');
+      document.getElementById('modal-styles').classList.remove('flex');
+    }
+
+    async function deleteStyle(id) {
+      if (!confirm('Supprimer ce style ?')) return;
+      try {
+        var res = await fetch(API + '/styles/' + id, { method: 'DELETE' });
+        if (!res.ok) throw await safeJson(res);
+        if (document.getElementById('tab-styles') && !document.getElementById('tab-styles').classList.contains('hidden')) loadStylesTab();
+        if (window.loadStyles) loadStyles();
+      } catch (err) {
+        showModal('Erreur', 'Impossible de supprimer: ' + (err.message || err.error || ''), 'error');
+      }
+    }
+
+    async function loadStyles() {
+      try {
+        var r = await fetch(API + '/styles');
+        if (!r.ok) {
+          var txt2 = await r.text().catch(function(){ return ''; });
+          console.error('loadStyles failed:', r.status, txt2.substring(0,200));
+          return;
+        }
+        var styles = await r.json();
+        renderStylesList(styles);
+        var sel = document.getElementById('enhance-style');
+        sel.innerHTML = '<option value="">-- Style --</option>';
+        styles.forEach(function(s) {
+          var opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = s.name + (s.is_public ? '' : ' (prive)') + ' - ' + (s.owner_name || 'moi');
+          sel.appendChild(opt);
+        });
+        if (currentUser && currentUser.settings && currentUser.settings.enhanceStyleId) {
+          sel.value = currentUser.settings.enhanceStyleId;
+        }
+      } catch (e) {}
+    }
+
+    function renderStylesList(styles) {
+      var el = document.getElementById('styles-list');
+      if (!styles.length) { el.innerHTML = '<p class="text-xs text-slate-400">Aucun style. Creez-en un !</p>'; return; }
+      var html = '';
+      styles.forEach(function(s) {
+        var canEdit = s.user_id === (currentUser ? currentUser.id : '');
+        html += '<div class="flex items-center justify-between py-1 px-2 rounded text-xs bg-slate-50 dark:bg-slate-800/50">';
+        html += '<div><span class="font-medium text-slate-700 dark:text-slate-200">' + s.name + '</span>';
+        html += ' <span class="text-slate-400">' + (s.is_public ? '🌐 public' : '🔒 prive') + ' (' + (s.owner_name || 'moi') + ')</span>';
+        html += '<br><span class="text-slate-400 text-xs italic">+ ' + s.style_text.substring(0, 60) + '</span>';
+        if (s.negative_prompt) html += '<br><span class="text-rose-400 text-xs">- ' + s.negative_prompt.substring(0, 50) + '</span>';
+        html += '</div>';
+        if (canEdit) {
+          html += '<div class="flex gap-1">';
+          html += '<button onclick="editStyle(' + s.id + ')" class="text-xs text-indigo-400 hover:text-indigo-600">Edit</button>';
+          html += '<button onclick="delStyle(' + s.id + ')" class="text-xs text-rose-400 hover:text-rose-600">Del</button>';
+          html += '</div>';
+        }
+        html += '</div>';
+      });
+      el.innerHTML = html;
+    }
+
+    async function saveStyle() {
+      var name = document.getElementById('style-form-name').value.trim();
+      var text = document.getElementById('style-form-text').value.trim();
+      var neg = document.getElementById('style-form-neg').value.trim();
+      var isPublic = document.getElementById('style-form-public').checked ? 1 : 0;
+      var editId = document.getElementById('style-form-name').dataset.editId;
+      if (!name || !text) { showModal('Style', 'Nom et texte requis', 'error'); return; }
+      try {
+        var body = {name: name, style_text: text, negative_prompt: neg, is_public: isPublic};
+        var endpoint = '/styles';
+        var method = 'POST';
+        if (editId) { endpoint = '/styles/' + editId; method = 'PUT'; }
+        var r = await fetch(API + endpoint, {
+          method: method,
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body)
+        });
+        if (!r.ok) throw await safeJson(r);
+        clearStyleForm();
+        loadStyles();
+        showModal('Style', editId ? 'Style mis a jour' : 'Style ajoute !', 'success');
+      } catch (err) {
+        showModal('Erreur', (err.error || ''), 'error');
+      }
+    }
+
+    function editStyle(id) {
+      fetch(API + '/styles').then(function(r){ return r.json(); }).then(function(styles){
+        var s = styles.find(function(x){ return x.id === id; });
+        if (!s) return;
+        document.getElementById('style-form-name').value = s.name;
+        document.getElementById('style-form-name').dataset.editId = id;
+        document.getElementById('style-form-text').value = s.style_text;
+        document.getElementById('style-form-neg').value = s.negative_prompt || '';
+        document.getElementById('style-form-public').checked = s.is_public;
+        document.getElementById('btn-style-save').textContent = 'Mettre a jour';
+        document.getElementById('btn-style-clear').classList.remove('hidden');
+      }).catch(function(){});
+    }
+
+
+    // --- Gestion des filtres ---
+
+    function openManageFilters() {
+      document.getElementById('modal-manage-filters').classList.remove('hidden');
+      document.getElementById('modal-manage-filters').classList.add('flex');
+      makeModalDraggable('mf-modal-header', 'mf-modal');
+      mfSelected = {};
+      var ub = document.getElementById('mf-union-btn');
+      if (ub) ub.style.display = 'none';
+      loadManageFilters();
+    }
+
+    function closeManageFilters() {
+      document.getElementById('modal-manage-filters').classList.add('hidden');
+      document.getElementById('modal-manage-filters').classList.remove('flex');
+    }
+
+    var mfSelected = {};
+
+    function mfToggleSelect(id) {
+      if (mfSelected[id]) delete mfSelected[id];
+      else mfSelected[id] = true;
+      document.getElementById('mf-union-btn').style.display = Object.keys(mfSelected).length >= 2 ? 'inline-flex' : 'none';
+    }
+
+    async function mfCreateUnion() {
+      var ids = Object.keys(mfSelected).map(Number);
+      if (ids.length < 2) { showModal('Union', 'Selectionne au moins 2 filtres', 'error'); return; }
+      showPrompt('Union', 'Nom du filtre compose (union) :', 'Union: ...', async function(name) {
+        if (!name) return;
+        try {
+          var res = await fetch(API + '/filters', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              name: name,
+              filter_type: 'union',
+              union_member_ids: ids,
+              nsfw: 0,
+              is_public: 0,
+              category: '',
+              config: {}
+            })
+          });
+          if (res.ok) {
+            showModal('Union', 'Filtre compose cree !', 'success');
+            mfSelected = {};
+            loadManageFilters();
+          } else {
+            var err = await safeJson(res);
+            showModal('Erreur', err.error || 'Erreur', 'error');
+          }
+        } catch (err) {
+          showModal('Erreur', err.message, 'error');
+        }
+      });
+    }
+
+    async function loadManageFilters() {
+      try {
+        var r = await fetch(API + '/filters');
+        if (!r.ok) return;
+        var filters = await r.json();
+        var el = document.getElementById('mf-list');
+        if (!filters.length) { el.innerHTML = '<p class="text-xs text-slate-400">Aucun filtre</p>'; return; }
+        var html = '';
+        html += '<div class="flex items-center gap-2 px-1 pb-2 border-b border-slate-200 dark:border-slate-700">';
+        html += '<button id="mf-union-btn" onclick="mfCreateUnion()" class="hidden inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50">&#x1f9ea; Creer une union</button>';
+        html += '<span class="text-xs text-slate-400">(cochez 2+ filtres)</span></div>';
+        filters.forEach(function(f) {
+          var canEdit = f.user_id === (currentUser ? currentUser.id : '');
+          var checked = mfSelected[f.id] ? 'checked' : '';
+          var typeBadge = f.filter_type === 'union' ? '<span class="text-xs text-amber-500 font-medium">[Union]</span> ' : '<span class="text-xs text-slate-400">[Simple]</span> ';
+          var membersHtml = '';
+          if (f.filter_type === 'union' && f.union_members && f.union_members.length > 0) {
+            membersHtml = '<br><span class="text-xs text-amber-500/70">→ ' + f.union_members.map(function(m){ return escapeHtml(m.name); }).join(', ') + '</span>';
+          }
+          html += '<div class="flex items-center justify-between py-1.5 px-2 rounded text-xs ' + (canEdit ? 'bg-slate-50 dark:bg-slate-800/50' : 'bg-slate-50/50 dark:bg-slate-800/30') + '">';
+          html += '<div class="flex items-center gap-2 flex-1 min-w-0">';
+          html += '<input type="checkbox" ' + checked + ' onchange="mfToggleSelect(' + f.id + ')" class="accent-indigo-500 flex-shrink-0">';
+          html += '<div class="min-w-0"><span class="font-medium text-slate-700 dark:text-slate-200">' + escapeHtml(f.name) + '</span> ' + typeBadge;
+          html += ' <span class="text-slate-400">' + (f.nsfw ? 'NSFW' : 'SFW') + (f.is_public ? ' public' : '') + '</span>';
+          html += membersHtml + '</div></div>';
+          html += '<div class="flex gap-1 flex-shrink-0">';
+          if (canEdit) {
+            html += '<button onclick="renameFilter(' + f.id + ')" class="text-xs text-indigo-400 hover:text-indigo-600">Edit</button>';
+            html += '<button onclick="refreshFilterCache(' + f.id + ')" class="text-xs text-amber-400 hover:text-amber-600" title="Reconstruire le cache">&#x21bb;</button>';
+            html += '<button onclick="deleteMFFilter(' + f.id + ')" class="text-xs text-rose-400 hover:text-rose-600">Del</button>';
+          }
+          html += '</div></div>';
+        });
+        el.innerHTML = html;
+      } catch (e) {}
+    }
+
+    async function refreshFilterCache(id) {
+      try {
+        var r = await fetch(API + '/filters/' + id + '/refresh', { method: 'POST' });
+        if (!r.ok) throw await safeJson(r);
+        showModal('Cache', 'Cache du filtre regenere', 'success');
+        loadManageFilters();
+      } catch (err) {
+        showModal('Erreur', err.error || 'Erreur', 'error');
+      }
+    }
+
+    function renameFilter(id) {
+      showPrompt('Renommer', 'Nouveau nom :', '', async function(name) {
+        if (!name) return;
+        try {
+          var r = await fetch(API + '/filters/' + id, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: name})
+          });
+          if (!r.ok) throw await safeJson(r);
+          loadManageFilters();
+          showModal('Filtre', 'Filtre renomme', 'success');
+        } catch (err) {
+          showModal('Erreur', err.error || '', 'error');
+        }
+      });
+    }
+
+    function deleteMFFilter(id) {
+      showConfirm('Supprimer', 'Supprimer ce filtre ?', async function(ok) {
+        if (!ok) return;
+        try {
+          var r = await fetch(API + '/filters/' + id, { method: 'DELETE' });
+          if (!r.ok) throw await safeJson(r);
+          loadManageFilters();
+          showModal('Filtre', 'Filtre supprime', 'success');
+        } catch (err) {
+          showModal('Erreur', err.error || '', 'error');
+        }
+      });
+    }
+
+    async function previewFilterCache(filterId) {
+      try {
+        var r = await fetch(API + '/filters/' + filterId + '/preview');
+        if (!r.ok) return;
+        var d = await r.json();
+        var kw = d.keywords && d.keywords.length > 0 ? d.keywords.slice(0,8).join(', ') : 'aucun' ;
+        showModal('Cache du filtre', d.total + ' mots-cles dans le cache.\n\nEchantillon: ' + kw, 'success');
+      } catch (e) {}
+    }
+
+    function clearStyleForm() {
+      document.getElementById('style-form-name').value = '';
+      document.getElementById('style-form-name').dataset.editId = '';
+      document.getElementById('style-form-text').value = '';
+      document.getElementById('style-form-neg').value = '';
+      document.getElementById('style-form-public').checked = false;
+      document.getElementById('btn-style-save').textContent = 'Ajouter';
+      document.getElementById('btn-style-clear').classList.add('hidden');
+    }
+
+    function clearStyleFormTab() {
+      document.getElementById('t-style-form-name').value = '';
+      document.getElementById('t-style-form-name').dataset.editId = '';
+      document.getElementById('t-style-form-text').value = '';
+      document.getElementById('t-style-form-neg').value = '';
+      document.getElementById('t-style-form-public').checked = false;
+      document.getElementById('btn-t-style-save').textContent = 'Ajouter';
+      document.getElementById('btn-t-style-clear').classList.add('hidden');
+    }
+
+    function editStyleTab(id) {
+      fetch(API + '/styles').then(function(r){ return r.json(); }).then(function(styles){
+        var s = styles.find(function(x){ return x.id === id; });
+        if (!s) return;
+        document.getElementById('t-style-form-name').value = s.name;
+        document.getElementById('t-style-form-name').dataset.editId = id;
+        document.getElementById('t-style-form-text').value = s.style_text;
+        document.getElementById('t-style-form-neg').value = s.negative_prompt || '';
+        document.getElementById('t-style-form-public').checked = s.is_public;
+        document.getElementById('btn-t-style-save').textContent = 'Mettre a jour';
+        document.getElementById('btn-t-style-clear').classList.remove('hidden');
+      }).catch(function(){});
+    }
+
+    async function saveStyleTab() {
+      var name = document.getElementById('t-style-form-name').value.trim();
+      var text = document.getElementById('t-style-form-text').value.trim();
+      var neg = document.getElementById('t-style-form-neg').value.trim();
+      var isPublic = document.getElementById('t-style-form-public').checked ? 1 : 0;
+      var editId = document.getElementById('t-style-form-name').dataset.editId;
+      if (!name || !text) { showModal('Style', 'Nom et texte requis', 'error'); return; }
+      try {
+        var body = {name: name, style_text: text, negative_prompt: neg, is_public: isPublic};
+        var endpoint = '/styles';
+        var method = 'POST';
+        if (editId) { endpoint = '/styles/' + editId; method = 'PUT'; }
+        var r = await fetch(API + endpoint, {
+          method: method,
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body)
+        });
+        if (!r.ok) throw await safeJson(r);
+        clearStyleFormTab();
+        loadStylesTab();
+        loadStyles();
+        showModal('Style', editId ? 'Style mis a jour' : 'Style ajoute !', 'success');
+      } catch (err) {
+        showModal('Erreur', (err.error || ''), 'error');
+      }
+    }
+
+    function delStyle(id) {
+      showConfirm('Supprimer', 'Supprimer ce style ?', async function(ok){
+        if (!ok) return;
+        try {
+          var r = await fetch(API + '/styles/' + id, { method: 'DELETE' });
+          if (!r.ok) throw await safeJson(r);
+          loadStyles();
+        } catch (e) {
+          showModal('Erreur', (e.error || e.message || 'Impossible de supprimer le style'), 'error');
+        }
+      });
+    }
+
+    // -- Enhance --
+
+    /**
+     * Appelle /api/enhance en mode client-side (LLM local).
+     * Boucle multi-passes : pour chaque passe (1, 2, 3), on fait l'appel
+     * Ollama local et on appelle /api/enhance/finish. Le backend peut
+     * retourner awaiting_validation si une autre passe est necessaire.
+     *
+     * params: { text, preset_id, prompt_type, style_id, style_text,
+     *           ep_elements, random_count, base_url, onProgress }
+     * Retourne: { output, negative_prompt, model_used, debug_md }
+     */
+    async function callEnhanceLocalLLM(params) {
+      var baseUrl = (params.base_url || '').replace(/\/+$/, '');
+      if (!baseUrl) throw { error: 'URL du LLM local manquante' };
+
+      // 1) /api/enhance/prepare : le backend construit le payload LLM passe 1
+      if (params.onProgress) params.onProgress('Preparation du prompt (backend)...');
+      var prepareBody = {
+        text: params.text,
+        preset_id: params.preset_id,
+        prompt_type: params.prompt_type,
+        style_id: params.style_id,
+        style_text: params.style_text,
+        ep_elements: params.ep_elements || [],
+        random_count: params.random_count || 0
+      };
+      var prepareRes = await fetch(API + '/enhance/prepare', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(prepareBody)
+      });
+      if (!prepareRes.ok) {
+        var err = await safeJson(prepareRes);
+        throw { error: (err && err.error) || ('HTTP ' + prepareRes.status) };
+      }
+      var prep = await prepareRes.json();
+
+      // 2) Boucle multi-passes
+      var pass = 1;
+      while (true) {
+        if (params.onProgress) {
+          if (pass === 1) params.onProgress('Appel LLM local (passe 1)...');
+          else params.onProgress('Validation LLM local (passe ' + pass + ')...');
+        }
+        // Appel direct a Ollama local (ou tout LLM OpenAI-compatible)
+        var llmUrl = baseUrl + '/chat/completions';
+        var llmHeaders = {'Content-Type': 'application/json'};
+        // Note : la cle API est deja dans llm_config.api_key, donc pas d'auth
+        // explicite ici. Le backend l'a mise dans llm_config mais on ne l'utilise
+        // pas car Ollama local n'en a pas besoin. Si un user met une cle custom
+        // (ex: LM Studio avec auth), il faudrait l'ajouter ici.
+        var llmRes = await fetch(llmUrl, {
+          method: 'POST',
+          headers: llmHeaders,
+          body: JSON.stringify(prep.llm_request)
+        });
+        if (!llmRes.ok) {
+          var errText = await llmRes.text().catch(function(){ return ''; });
+          throw { error: 'LLM local erreur ' + llmRes.status + (errText ? ': ' + errText.substring(0, 200) : ' — verifie que CORS est active sur le serveur LLM') };
+        }
+        var llmResponse = await llmRes.json();
+
+        // 3) /api/enhance/finish : le backend fait le post-traitement
+        if (params.onProgress) params.onProgress('Post-traitement (backend)...');
+        var finishRes = await fetch(API + '/enhance/finish', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            session_id: prep.session_id,
+            llm_response: llmResponse,
+            pass: pass
+          })
+        });
+        if (!finishRes.ok) {
+          var ferr = await safeJson(finishRes);
+          throw { error: (ferr && ferr.error) || ('HTTP ' + finishRes.status) };
+        }
+        var fin = await finishRes.json();
+
+        // 4) Statut
+        if (fin.status === 'done') {
+          if (params.onProgress) params.onProgress('Terminé !');
+          return {
+            output: fin.output,
+            negative_prompt: fin.negative_prompt,
+            model_used: fin.model_used,
+            debug_md: fin.debug_md
+          };
+        }
+        if (fin.status === 'awaiting_validation') {
+          // Le backend veut une autre passe : reboucle avec le nouveau llm_request
+          prep.llm_request = fin.llm_request;
+          pass = fin.pass;
+          continue;
+        }
+        // Statut inconnu
+        throw { error: 'Statut inattendu du backend: ' + fin.status };
+      }
+    }
+
+    async function doEnhance() {
+      var text = document.getElementById('enhance-input').value.trim();
+      var presetId = document.getElementById('enhance-preset').value;
+      var promptType = document.getElementById('enhance-type').value;
+      var styleId = document.getElementById('enhance-style').value;
+      var useEP = document.getElementById('enhance-ep').checked;
+      var useRandom = document.getElementById('enhance-random').checked;
+      var randomCount = parseInt(document.getElementById('enhance-random-count').value) || 3;
+
+      if (!text && !useEP) { showModal('Enhance', 'Saisis un texte ou active Elements Picker', 'error'); return; }
+
+      var statusEl = document.getElementById('enhance-status');
+      statusEl.textContent = 'Generation en cours...';
+      statusEl.classList.remove('hidden');
+
+      // Si Elements Picker active, generer et fusionner
+      var epItems = [];
+      if (useEP) {
+        for (var i = 0; i < genElements.length; i++) {
+          var el = genElements[i];
+          if (el.type === 'filter' && el.filterId) epItems.push({type: 'filter', id: el.filterId});
+          else if (el.type === 'text' && el.text) epItems.push({type: 'text', text: el.text});
+        }
+        // Afficher aussi dans l'output de l'Elements Picker
+        try {
+          var epRes = await fetch(API + '/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({elements: epItems})
+          });
+          if (epRes.ok) {
+            var epData = await epRes.json();
+            document.getElementById('gen-output').value = epData.prompt;
+          }
+        } catch (e) {}
+      }
+
+      // Recuperer le texte du style
+      var styleText = '';
+      if (styleId) {
+        try {
+          var sr = await fetch(API + '/styles');
+          if (sr.ok) {
+            var styles = await sr.json();
+            var s = styles.find(function(x){ return x.id === parseInt(styleId); });
+            if (s) styleText = s.style_text;
+          }
+        } catch (e) {}
+      }
+
+      // Verifier si le preset est client-side
+      var isClientSide = false;
+      var csUrl = '', csModel = '';
+      if (presetId) {
+        try {
+          var pr = await fetch(API + '/presets');
+          if (pr.ok) {
+            var presets = await pr.json();
+            var p = presets.find(function(x){ return x.id === parseInt(presetId); });
+            if (p && p.is_client_side) {
+              isClientSide = true;
+              csUrl = p.base_url || '';
+              csModel = p.model || '';
+            }
+          }
+        } catch (e) {}
+      }
+
+      try {
+        var data;
+        if (isClientSide && csUrl) {
+          // ── Mode client-side (LLM local) : boucle multi-passes ──────────
+          // On utilise /api/enhance/prepare (construit le payload LLM cote backend
+          // avec tous les templates/system_prompt/exemples), puis on fait les appels
+          // Ollama local directement depuis le navigateur, puis /api/enhance/finish
+          // orchestre les passes de validation.
+          data = await callEnhanceLocalLLM({
+            text: text,
+            preset_id: presetId ? parseInt(presetId) : null,
+            prompt_type: promptType,
+            style_id: styleId ? parseInt(styleId) : null,
+            style_text: styleText,
+            ep_elements: epItems,
+            random_count: useRandom ? randomCount : 0,
+            base_url: csUrl,
+            onProgress: function(msg) { statusEl.textContent = msg; }
+          });
+        } else {
+          // Appel via backend (streaming ndjson : keepalive + result final)
+          var body = {
+            text: text,
+            preset_id: presetId ? parseInt(presetId) : null,
+            prompt_type: promptType,
+            style_id: styleId ? parseInt(styleId) : null,
+            style_text: styleText,
+            ep_elements: epItems,
+            random_count: useRandom ? randomCount : 0
+          };
+          var res = await fetch(API + '/enhance', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+          });
+          if (!res.ok) throw await safeJson(res);
+          // Lire les chunks ndjson et garder le dernier status='done'
+          var text2 = await res.text();
+          data = {output: ''};
+          for (var i = 0; i < text2.split('\n').length; i++) {
+            var line = text2.split('\n')[i];
+            if (!line.trim()) continue;
+            try {
+              var chunk = JSON.parse(line);
+              if (chunk.status === 'done') {
+                data = chunk;
+              } else if (chunk.status === 'error') {
+                throw {error: chunk.error || 'Erreur LLM'};
+              }
+            } catch (e) {
+              if (e && e.error) throw e;
+              // sinon ignorer la ligne (parse error)
+            }
+          }
+        }
+        document.getElementById('enhance-output').value = data.output;
+        document.getElementById('btn-copy-enhance').classList.remove('hidden');
+        document.getElementById('btn-toggle-view').classList.remove('hidden');
+        statusEl.classList.add('hidden');
+        saveEnhancerSettings();
+      } catch (err) {
+        statusEl.classList.add('hidden');
+        showModal('Erreur', (err.error || 'Erreur de generation'), 'error');
+      }
+    }
