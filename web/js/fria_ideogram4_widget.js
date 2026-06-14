@@ -39,10 +39,10 @@
                 // pas dans l'UI.
                 hideWidget(node, "preset_id");
                 hideWidget(node, "style_id");
-                hideWidget(node, "prompt_type");
+                hideWidget(node, "prompt_type_id");
 
                 // ---- Supprimer les sockets d'entrée ----
-                for (const inputName of ["preset_id", "style_id", "prompt_type"]) {
+                for (const inputName of ["preset_id", "style_id", "prompt_type_id"]) {
                     const slot = node.findInputSlot?.(inputName);
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
@@ -274,7 +274,7 @@
                     };
                     set("preset_id", parseInt(presetSelect.value) || 0);
                     set("style_id", parseInt(styleSelect.value) || 0);
-                    set("prompt_type", templateSelect.value || "ideogram4");
+                    set("prompt_type_id", parseInt(templateSelect.value) || 0);
                 }
 
                 presetSelect.onchange = syncNativeWidgets;
@@ -291,7 +291,7 @@
                     // par ComfyUI au rechargement de la page).
                     const pw = n.widgets?.find(x => x.name === "preset_id");
                     const sw = n.widgets?.find(x => x.name === "style_id");
-                    const tw = n.widgets?.find(x => x.name === "prompt_type");
+                    const tw = n.widgets?.find(x => x.name === "prompt_type_id");
                     try {
                         if (pw && pw.value > 0 && [...presetSelect.options].some(o => o.value === String(pw.value))) {
                             presetSelect.value = String(pw.value);
@@ -301,8 +301,8 @@
                             styleSelect.value = String(sw.value);
                             restored = true;
                         }
-                        if (tw && tw.value && [...templateSelect.options].some(o => o.value === tw.value)) {
-                            templateSelect.value = tw.value;
+                        if (tw && tw.value > 0 && [...templateSelect.options].some(o => o.value === String(tw.value))) {
+                            templateSelect.value = String(tw.value);
                             restored = true;
                         }
                     } catch {}
@@ -335,7 +335,8 @@
                     const payload = {
                         text: description,
                         seed: seedW > 0 ? seedW : null,
-                        prompt_type: templateSelect.value || "ideogram4",
+                        prompt_type_id: parseInt(templateSelect.value) || 0,
+                        prompt_type: "ideogram4",  // sera resolu par le backend
                         width: widthW || 1024,
                         height: heightW || 1024,
                         ep_elements: elTexts.map(t => ({ type: "text", text: t })),

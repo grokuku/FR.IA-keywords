@@ -675,8 +675,21 @@ def _prepare_enhance(user_id, data):
     preset_id = data.get('preset_id')
     text = data.get('text', '').strip()
     prompt_type = data.get('prompt_type', 'sdxl').strip()
+    # Si prompt_type_id est fourni, resoudre le prompt_type reel depuis la BDD
+    # (meme pattern que style_id) — permet au DOM widget ComfyUI d'envoyer un INT
+    prompt_type_id = data.get('prompt_type_id')
+    if prompt_type_id:
+        try:
+            conn = get_db()
+            row = conn.execute("SELECT prompt_type FROM prompt_templates WHERE id = ?", (int(prompt_type_id),)).fetchone()
+            conn.close()
+            if row:
+                prompt_type = row['prompt_type'] if hasattr(row, 'keys') else row[0]
+        except Exception as e:
+            import logging as _log
+            _log.warning(f"[enhance] prompt_type_id={prompt_type_id} resolution failed: {e}")
     # Debug : tracer les params reçus
-    logging.warning(f"[enhance] REQUEST user={user_id} preset_id={preset_id} prompt_type={prompt_type} text_len={len(text)}")
+    logging.warning(f"[enhance] REQUEST user={user_id} preset_id={preset_id} prompt_type={prompt_type} prompt_type_id={prompt_type_id} text_len={len(text)}")
     # Format de sortie : si non fourni, déduit du type de prompt.
     # Par défaut tout est en 'text'. L'editeur de templates peut surcharger
     # par type en creant un template avec un format different.

@@ -37,7 +37,7 @@ class FRIAIdeogram4Node:
                 "element_4": ("STRING", {"default": ""}),
                 "preset_id": ("INT", {"default": 0, "min": 0}),
                 "style_id": ("INT", {"default": 0, "min": 0}),
-                "prompt_type": ("STRING", {"default": "ideogram4"}),
+                "prompt_type_id": ("INT", {"default": 0, "min": 0}),
             },
         }
 
@@ -47,7 +47,9 @@ class FRIAIdeogram4Node:
     def build_caption(self, seed=0, width=1024, height=1024,
                       description="", element_1="", element_2="",
                       element_3="", element_4="",
-                      preset_id=0, style_id=0, prompt_type="ideogram4"):
+                      preset_id=0, style_id=0, prompt_type_id=0):
+        import logging
+        logging.warning(f"[FR.IA Ideogram Builder] received prompt_type_id={prompt_type_id} style_id={style_id} preset_id={preset_id}")
         # api_key et api_url lus depuis le fichier de credentials
         api_url = _credentials.get_api_url()
         api_key = _credentials.get_api_key()
@@ -60,7 +62,8 @@ class FRIAIdeogram4Node:
         payload = {
             "text": description.strip(),
             "seed": seed if seed > 0 else None,
-            "prompt_type": prompt_type if prompt_type else "ideogram4",
+            "prompt_type_id": prompt_type_id if prompt_type_id > 0 else None,
+            "prompt_type": "ideogram4",  # sera ecrase par le backend si prompt_type_id fourni
             "width": width,
             "height": height,
             "ep_elements": ep_elements,

@@ -35,7 +35,7 @@
                     if (styleWidget.inputEl) styleWidget.inputEl.style.display = "none";
                     if (styleWidget.parentEl) styleWidget.parentEl.style.display = "none";
                 }
-                const promptTypeWidget = node.widgets?.find(x => x.name === "prompt_type");
+                const promptTypeWidget = node.widgets?.find(x => x.name === "prompt_type_id");
                 if (promptTypeWidget) {
                     promptTypeWidget.hidden = true;
                     promptTypeWidget.computeSize = () => [0, -4];
@@ -43,7 +43,7 @@
                     if (promptTypeWidget.parentEl) promptTypeWidget.parentEl.style.display = "none";
                 }
                 // Supprimer les sockets d'entrée
-                for (const inputName of ["style_id", "prompt_type"]) {
+                for (const inputName of ["style_id", "prompt_type_id"]) {
                     const slot = node.findInputSlot?.(inputName);
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
@@ -85,7 +85,7 @@
                         styleWidget.value = parseInt(styleSelect.value) || 0;
                     }
                     if (promptTypeWidget) {
-                        promptTypeWidget.value = typeSelect.value || "ideogram4";
+                        promptTypeWidget.value = parseInt(typeSelect.value) || 0;
                     }
                 }
 
@@ -98,9 +98,9 @@
                             restored = true;
                         }
                     }
-                    if (promptTypeWidget && promptTypeWidget.value) {
-                        if ([...typeSelect.options].some(o => o.value === promptTypeWidget.value)) {
-                            typeSelect.value = promptTypeWidget.value;
+                    if (promptTypeWidget && promptTypeWidget.value > 0) {
+                        if ([...typeSelect.options].some(o => o.value === String(promptTypeWidget.value))) {
+                            typeSelect.value = String(promptTypeWidget.value);
                             restored = true;
                         }
                     }
@@ -180,8 +180,9 @@
                         typeSelect.innerHTML = '';
                         list.forEach(t => {
                             const o = document.createElement("option");
-                            o.value = t.prompt_type;
-                            o.textContent = t.name || t.prompt_type;
+                    o.value = String(t.id);
+                                o.textContent = t.name || t.prompt_type;
+                                o.dataset.promptType = t.prompt_type;
                             typeSelect.appendChild(o);
                         });
                         if (current && [...typeSelect.options].some(o => o.value === current)) {
