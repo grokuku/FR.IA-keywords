@@ -309,7 +309,14 @@
                     } catch {}
                     return restored;
                 }
-                node._friaRestore = restoreFromWidgets.bind(null, node);
+                node._friaRestore = function () {
+                    let ra = 0;
+                    const retry = () => {
+                        const restored = restoreFromWidgets(node);
+                        if (!restored && ++ra < 20) setTimeout(retry, 300);
+                    };
+                    retry();
+                };
 
                 populateSelect(presetSelect, "presets", "-- Preset IA --")
                     .then(() => restoreFromWidgets(node));

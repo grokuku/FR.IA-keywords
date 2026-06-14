@@ -263,7 +263,14 @@
                     return r;
                 };
 
-                node._friaRestore = restoreFromNativeWidget.bind(null, node);
+                node._friaRestore = function () {
+                    let ra = 0;
+                    const retry = () => {
+                        const restored = restoreFromNativeWidget();
+                        if (!restored && ++ra < 20) setTimeout(retry, 300);
+                    };
+                    retry();
+                };
                 return r;
             };
         },
