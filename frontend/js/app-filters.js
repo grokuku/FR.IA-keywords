@@ -500,21 +500,16 @@
           var isDefault = !!t.is_default;
           var isAdmin = currentUser && currentUser.role === 'admin';
           var canEdit = t.editable || (isAdmin && !t.user_id);
-          var fmtLabel = t.output_format || 'text';
-          var tag = isDefault ? '<span class="text-[9px] text-amber-500 font-medium ml-1">système</span>' : '';
-          if (!isDefault && canEdit) tag += ' <span class="text-[9px] text-indigo-500 font-medium ml-0.5">moi</span>';
-          html += '<div class="fria-tmpl-row flex flex-col px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' +
+          html += '<div class="fria-tmpl-row flex items-center justify-between px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' +
             '" onclick="editTemplateTab(' + t.id + ')" title="Cliquer pour editer">' +
-            '<div class="flex items-center justify-between">' +
-            '<div><span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">' + fmtLabel + '</span>' +
-            '<span class="text-xs font-medium text-slate-700 dark:text-slate-300 ml-2">' + name + '</span>' + tag +
-            '<span class="text-xs text-slate-400 ml-1">' + author + pub + '</span></div>' +
+            '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' +
+            '<span class="text-xs text-slate-400 ml-2">par ' + author + pub + '</span></div>' +
             '<div class="flex gap-1 shrink-0 ml-2" onclick="event.stopPropagation()">';
           if (canEdit) {
             html += '<button onclick="cloneTemplateTab(' + t.id + ')" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800/50 dark:hover:bg-indigo-900/50 transition" title="Cloner">📋 Cloner</button>';
             html += '<button onclick="deleteTemplateTab(' + t.id + ')" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50 dark:hover:bg-red-900/50 transition" title="Supprimer">🗑 Supprimer</button>';
           }
-          html += '</div></div></div>';
+          html += '</div></div>';
         });
         el.innerHTML = html || '<p class="text-xs text-slate-400 italic">Aucun template. Clique sur "+ Nouveau template".</p>';
       } catch { el.innerHTML = '<p class="text-xs text-red-400">Erreur de chargement</p>'; }
