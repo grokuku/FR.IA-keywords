@@ -684,12 +684,16 @@ def _prepare_enhance(user_id, data):
             row = conn.execute("SELECT prompt_type FROM prompt_templates WHERE id = ?", (int(prompt_type_id),)).fetchone()
             conn.close()
             if row:
-                prompt_type = row['prompt_type'] if hasattr(row, 'keys') else row[0]
+                resolved_pt = row['prompt_type'] if hasattr(row, 'keys') else row[0]
+                if resolved_pt:
+                    prompt_type = resolved_pt
         except Exception as e:
             import logging as _log
             _log.warning(f"[enhance] prompt_type_id={prompt_type_id} resolution failed: {e}")
+    if not prompt_type:
+        prompt_type = 'sdxl'  # fallback si vide
     # Debug : tracer les params reçus
-    logging.warning(f"[enhance] REQUEST user={user_id} preset_id={preset_id} prompt_type={prompt_type} prompt_type_id={prompt_type_id} text_len={len(text)}")
+    logging.warning(f"[enhance] REQUEST user={user_id} preset_id={preset_id} prompt_type='{prompt_type}' prompt_type_id={prompt_type_id} text_len={len(text)}")
     # Format de sortie : si non fourni, déduit du type de prompt.
     # Par défaut tout est en 'text'. L'editeur de templates peut surcharger
     # par type en creant un template avec un format different.
@@ -868,13 +872,16 @@ def _prepare_enhance(user_id, data):
     }
 
     # Resoudre le template personnalise depuis prompt_templates
+    # Resoudre le template personnalise depuis prompt_templates
+    # On ne filtre PAS par output_format — le matching se fait uniquement
+    # sur prompt_type. output_format sera utilise plus tard pour la validation.
     template_examples = []
-    template_system_prompt = None  # system_prompt du template (peut etre None)
+    template_system_prompt = None
     conn = get_db()
     try:
         cur = conn.execute(
-            "SELECT system_prompt, examples FROM prompt_templates WHERE prompt_type = ? AND output_format = ? AND (is_public = 1 OR is_default = 1 OR user_id = ?) ORDER BY is_default DESC LIMIT 1",
-            (prompt_type, output_format, user_id)
+            "SELECT system_prompt, examples FROM prompt_templates WHERE prompt_type = ? AND (is_public = 1 OR is_default = 1 OR user_id = ?) ORDER BY is_default DESC LIMIT 1",
+            (prompt_type, user_id)
         )
         tmpl = cur.fetchone()
         if tmpl:
@@ -883,9 +890,13 @@ def _prepare_enhance(user_id, data):
                 template_examples = json.loads(tmpl['examples']) if tmpl['examples'] else []
             except:
                 template_examples = []
-    except:
-        pass
+    except Exception as e:
+        import logging as _log2
+        _log2.warning(f"[enhance] template resolution failed for prompt_type='{prompt_type}': {e}")
     conn.close()
+
+    import logging as _log_tmpl
+    _log_tmpl.warning(f"[enhance] user={user_id} prompt_type='{prompt_type}' template_found={'yes' if template_system_prompt else 'no'} sys_len={len(template_system_prompt or '')}")
 
     system_parts = []
 
@@ -944,7 +955,6 @@ Here are well-structured examples for reference — study them but do NOT copy v
             {'role': 'user', 'content': merged_text}
         ],
         'temperature': 0.3,
-        'max_tokens': 2000 if output_format == 'json' else 400,
         'frequency_penalty': 0.5,
         'repeat_penalty': 1.2,
     }
@@ -960,7 +970,6 @@ Here are well-structured examples for reference — study them but do NOT copy v
         'system_prompt': system_prompt[:2000],
         'user_prompt': merged_text[:2000],
         'temperature': llm_request['temperature'],
-        'max_tokens': llm_request['max_tokens'],
     })
 
     # ── Auto-critique : passes de validation (Ideogram 4 uniquement) ────
@@ -1225,7 +1234,6 @@ Output ONLY the corrected JSON. No code fences."""
             {'role': 'user', 'content': critique_prompt},
         ],
         'temperature': 0.1,
-        'max_tokens': 2000,
         'frequency_penalty': 0.0,
         'repeat_penalty': 1.0,
     }
