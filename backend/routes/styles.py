@@ -15,13 +15,23 @@ def styles():
 
     if request.method == 'GET':
         try:
-            rows = cur.execute("""
-                SELECT s.*, u.username, u.display_name
-                FROM styles s
-                LEFT JOIN users u ON u.id = s.user_id
-                WHERE s.is_public = 1 OR s.user_id = ?
-                ORDER BY s.is_public DESC, s.name
-            """, (user_id,)).fetchall()
+            # Admin voit aussi les styles sans proprietaire
+            if is_admin(user_id):
+                rows = cur.execute("""
+                    SELECT s.*, u.username, u.display_name
+                    FROM styles s
+                    LEFT JOIN users u ON u.id = s.user_id
+                    WHERE s.is_public = 1 OR s.user_id = ? OR s.user_id IS NULL
+                    ORDER BY s.is_public DESC, s.name
+                """, (user_id,)).fetchall()
+            else:
+                rows = cur.execute("""
+                    SELECT s.*, u.username, u.display_name
+                    FROM styles s
+                    LEFT JOIN users u ON u.id = s.user_id
+                    WHERE s.is_public = 1 OR s.user_id = ?
+                    ORDER BY s.is_public DESC, s.name
+                """, (user_id,)).fetchall()
         except Exception as e:
             conn.close()
             return jsonify({'error': f'DB error: {e}'}), 500
@@ -65,9 +75,14 @@ def single_style(style_id):
     user_id = _get_current_user_id()
     conn = get_db()
     row = conn.execute("SELECT * FROM styles WHERE id = ?", (style_id,)).fetchone()
-    if not row or row['user_id'] != user_id:
+    if not row:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
+    # Admin peut editer les styles sans proprietaire
+    can_edit = (row['user_id'] == user_id) or (is_admin(user_id) and not row['user_id'])
+    if not can_edit:
+        conn.close()
+        return jsonify({'error': 'Not editable'}), 403
 
     if request.method == 'DELETE':
         # Détacher les prompts générés qui référencent ce style (FK constraint)

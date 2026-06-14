@@ -34,10 +34,11 @@ def prompt_templates():
         rows = conn.execute(query, params).fetchall()
         conn.close()
         result = []
+        is_user_admin = is_admin(user_id)
         for r in rows:
             d = dict(r)
             d['examples'] = json.loads(d.get('examples', '[]')) if isinstance(d.get('examples'), str) else d.get('examples', [])
-            d['editable'] = (d['user_id'] == user_id)
+            d['editable'] = (d['user_id'] == user_id) or (is_user_admin and not d['user_id'])
             result.append(d)
         return jsonify(result)
 
@@ -71,9 +72,14 @@ def single_template(template_id):
     user_id = _get_current_user_id()
     conn = get_db()
     row = conn.execute("SELECT * FROM prompt_templates WHERE id = ?", (template_id,)).fetchone()
-    if not row or (row['user_id'] != user_id and not row['is_default']):
+    if not row:
         conn.close()
-        return jsonify({'error': 'Not found or not editable'}), 404
+        return jsonify({'error': 'Not found'}), 404
+    # Admin peut editer les templates sans proprietaire
+    can_edit = (row['user_id'] == user_id) or (is_admin(user_id) and not row['user_id'])
+    if not can_edit:
+        conn.close()
+        return jsonify({'error': 'Not editable'}), 403
     if request.method == 'PUT':
         data = request.get_json()
         if 'name' in data:

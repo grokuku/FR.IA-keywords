@@ -207,7 +207,7 @@
           var name = s.name || '?';
           var author = s.owner_name || '?';
           var pub = s.is_public ? ' 🌐' : ' 🔒';
-          var canEdit = s.user_id === (currentUser ? currentUser.id : '');
+          var canEdit = s.user_id === (currentUser ? currentUser.id : '') || (currentUser && currentUser.role === 'admin' && !s.user_id);
           html += '<div class="fria-style-row flex flex-col px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700' +
             (canEdit ? ' cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' : '') +
             '" onclick="editStyleTab(' + s.id + ')" title="Cliquer pour editer">' +
