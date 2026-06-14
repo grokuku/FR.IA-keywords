@@ -31,8 +31,8 @@ def ideogram_prep():
     user_id = _get_current_user_id()
     data = request.get_json() or {}
 
-    # Forcer prompt_type=ideogram4 et validation_passes=0 (le client gere)
-    data['prompt_type'] = 'ideogram4'
+    # Forcer validation_passes=0 (le client gere la passe 2)
+    # prompt_type reste celui envoye par le client (template selectionne)
     data['validation_passes'] = 0
 
     import logging
