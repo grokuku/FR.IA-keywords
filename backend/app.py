@@ -3473,6 +3473,9 @@ def generate_prompt():
         return jsonify({'error': 'payload requis'}), 400
 
     elements = data.get('elements', [])
+    # Filtrer les entrées marquées visible=False (masquées depuis l'UI ComfyUI)
+    elements = [el for el in elements if el.get('visible') is not False]
+
     # Seed pour reproductibilité — on utilise un Random local pour ne pas
     # polluer l'état global et garantir le déterminisme.
     # IMPORTANT : les requêtes SQL ne DOIVENT PAS utiliser ORDER BY RANDOM()

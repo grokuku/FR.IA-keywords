@@ -48,6 +48,9 @@ class FRIAElementsNode:
         elements = elems_cfg.get("elements", [])
         random_count = int(elems_cfg.get("random_count", 0))
 
+        # Filtrer les entrees marquees visible=False (masquees depuis l'UI)
+        elements = [el for el in elements if el.get("visible") is not False]
+
         # Vérifier qu'il y a du contenu à générer
         if not elements and random_count <= 0:
             return {

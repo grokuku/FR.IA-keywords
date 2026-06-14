@@ -102,9 +102,15 @@ function hideWidget(node, name) {
                     if (!w) return;
                     w.value = JSON.stringify({
                         elements: node._friaElements.map(e => {
-                            if (e.type === "filter") return { type: "filter", id: e.id, name: e.name || "", author: e.author || "", is_public: !!e.is_public };
-                            if (e.type === "text") return { type: "raw", text: e.text };
-                            return e;
+                            const base = { visible: e.visible !== false };
+                            if (e.type === "filter") {
+                                return { ...base, type: "filter", id: e.id, name: e.name || "", author: e.author || "", is_public: !!e.is_public };
+                            }
+                            if (e.type === "text") {
+                                // "raw" est le format attendu par le backend /api/generate
+                                return { ...base, type: "raw", text: e.text };
+                            }
+                            return { ...base, ...e };
                         }),
                         random_count: randCb.checked ? (parseInt(randN.value) || 3) : 0,
                         random_sfw: sfwCb.checked,
@@ -209,6 +215,12 @@ function hideWidget(node, name) {
                         });
 
                         row.className = "fria-element-row";
+                        const isHidden = item.visible === false;
+                        if (isHidden) {
+                            row.style.opacity = "0.45";
+                            row.style.background = "#252836";
+                            row.style.border = "1px solid #444";
+                        }
 
                         // Poignée de drag (⠿)
                         const grip = document.createElement("span");
@@ -220,7 +232,27 @@ function hideWidget(node, name) {
                         grip.title = "Glisser-déposer pour réorganiser";
                         grip.onpointerdown = (e) => startDrag(e, idx, row);
 
+                        // Icône œil (visible / masqué)
+                        const eyeBtn = document.createElement("span");
+                        eyeBtn.textContent = isHidden ? "🙈" : "👁";
+                        Object.assign(eyeBtn.style, {
+                            cursor: "pointer", fontSize: "12px", flexShrink: "0",
+                            userSelect: "none", marginRight: "2px",
+                        });
+                        eyeBtn.title = isHidden ? "Activier cette entrée" : "Masquer cette entrée";
+                        eyeBtn.onpointerdown = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                        };
+                        eyeBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            item.visible = !isHidden;
+                            renderList();
+                            syncElementsWidget();
+                        };
+
                         row.appendChild(grip);
+                        row.appendChild(eyeBtn);
                         const iconSpan = document.createElement("span");
                         iconSpan.style.cssText = "flex-shrink:0;";
                         iconSpan.textContent = item.type === "filter" ? "🔽" : "📝";
@@ -314,14 +346,15 @@ function hideWidget(node, name) {
                         ? row.nextElementSibling
                         : null;
 
-                    // Placeholder fin (4px) avec fond bleu : il ne prend pas toute
-                    // la hauteur de la ligne, juste une barre d'insertion.
+                    // Placeholder en cadre pointille bleu, hauteur d'une ligne,
+                    // pour bien marquer l'emplacement de drop.
                     const placeholder = document.createElement("div");
                     placeholder.className = "fria-drag-placeholder";
                     Object.assign(placeholder.style, {
-                        height: "4px", borderRadius: "2px",
-                        background: "#60a5fa",
-                        margin: "2px 0", pointerEvents: "none",
+                        height: `${row.getBoundingClientRect().height}px`,
+                        border: "2px dashed #60a5fa", borderRadius: "4px",
+                        background: "rgba(96,165,250,0.10)",
+                        marginBottom: "2px", pointerEvents: "none",
                         transition: "transform 0.12s ease-out",
                     });
 
@@ -651,10 +684,11 @@ function hideWidget(node, name) {
 
                 // ---- triggerGenerate ----
                 function triggerGenerate(n) {
-                    const elements = n._friaElements || [];
+                    const allElements = n._friaElements || [];
+                    const elements = allElements.filter(e => e.visible !== false);
 
                     if (elements.length === 0 && !randCb.checked) {
-                        result.value = "Ajoutez au moins un élément ou activez Add random.";
+                        result.value = "Ajoutez au moins un élément visible ou activez Add random.";
                         return;
                     }
 
@@ -762,6 +796,7 @@ function hideWidget(node, name) {
                         const data = JSON.parse(ej.value);
                         if (data.elements && Array.isArray(data.elements) && data.elements.length > 0 && n._friaElements.length === 0) {
                             n._friaElements = data.elements.map(e => {
+                                const visible = e.visible !== false;
                                 if (e.type === "filter") {
                                     return {
                                         type: "filter",
@@ -769,13 +804,14 @@ function hideWidget(node, name) {
                                         name: e.name || `Filtre #${e.id}`,
                                         author: e.author || "?",
                                         is_public: !!e.is_public,
+                                        visible,
                                     };
                                 }
                                 if (e.type === "text" || e.type === "raw") {
                                     // Format interne = "text" pour l'affichage
-                                    return { type: "text", text: e.text || "" };
+                                    return { type: "text", text: e.text || "", visible };
                                 }
-                                return e;
+                                return { ...e, visible };
                             });
                             renderList();
                         }
