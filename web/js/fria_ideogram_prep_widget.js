@@ -188,6 +188,7 @@
                         if (current && [...typeSelect.options].some(o => o.value === current)) {
                             typeSelect.value = current;
                         }
+                        syncStyleWidget();
                     } catch {}
                 }
                 typeSelect.addEventListener("mousedown", loadIdeogramPrepTemplates);
@@ -233,7 +234,16 @@
                 widget.computeSize = () => [node.size[0] - 20, 105];
 
                 // ---- Initialisation ----
-                loadIdeogramPrepTemplates();
+                loadIdeogramPrepTemplates().then(() => {
+                    restoreFromNativeWidget();
+                    syncStyleWidget();
+                    let ra = 0;
+                    function delayedRestore() {
+                        if (restoreFromNativeWidget()) return;
+                        if (++ra < 20) setTimeout(delayedRestore, 300);
+                    }
+                    setTimeout(delayedRestore, 100);
+                });
                 populateStyleSelect().then(() => {
                     restoreFromNativeWidget();
                     syncStyleWidget();

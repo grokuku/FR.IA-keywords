@@ -180,6 +180,7 @@
                             if (current && [...templateSelect.options].some(o => o.value === current)) {
                                 templateSelect.value = current;
                             }
+                            syncNativeWidgets();
                         }
                     } catch {}
                 }
@@ -314,9 +315,10 @@
                     .then(() => restoreFromWidgets(node));
                 populateSelect(styleSelect, "styles", "-- Style --")
                     .then(() => restoreFromWidgets(node));
-                loadTemplates();
-
-                syncNativeWidgets();
+                loadTemplates().then(() => {
+                    restoreFromWidgets(node);
+                    syncNativeWidgets();
+                });
 
                 // ========================================
                 // GENERATE

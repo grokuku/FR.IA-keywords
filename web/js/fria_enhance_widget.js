@@ -212,8 +212,10 @@
                         } else if (pw && pw.value && [...typeSelect.options].some(o => o.value === pw.value)) {
                             typeSelect.value = pw.value;
                         }
+                        syncNativeWidgets();
                     } catch {
                         typeSelect.innerHTML = '<option value="">-- Template --</option>';
+                        syncNativeWidgets();
                     }
                 }
                 typeSelect.addEventListener("mousedown", loadEnhanceTemplates);
@@ -278,12 +280,14 @@
                 widget.computeSize = () => [node.size[0] - 20, 240];
 
                 // ---- Initialisation ----
-                loadEnhanceTemplates();
+                loadEnhanceTemplates().then(() => {
+                    syncNativeWidgets();
+                });
                 populateSelect(presetSelect, "presets", "name", "id", "-- Preset IA --").then(() => {
                     populateSelect(styleSelect, "styles", "name", "id", "-- Style --").then(() => {
                         restoreFromNativeWidgets();
                         syncNativeWidgets();
-                        // Retry si les options n'étaient pas encore chargées
+                        // Retry si les options n'etaient pas encore chargees
                         let ra = 0;
                         function delayedRestore() {
                             restoreFromNativeWidgets();

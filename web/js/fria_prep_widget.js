@@ -193,6 +193,8 @@
                         } else if (pw && pw.value && [...typeSelect.options].some(o => o.value === pw.value)) {
                             typeSelect.value = pw.value;
                         }
+                        // sync apres restauration (programmatic value ne declenche pas onchange)
+                        syncNativeWidgets();
                     } catch {}
                 }
                 typeSelect.addEventListener("mousedown", loadPrepTemplates);
@@ -237,11 +239,20 @@
                 widget.computeSize = () => [node.size[0] - 20, 110];
 
                 // ---- Initialisation ----
-                loadPrepTemplates();
+                loadPrepTemplates().then(() => {
+                    restoreFromNativeWidgets();
+                    syncNativeWidgets();
+                    // Retry si les options n'etaient pas encore chargees
+                    let ra = 0;
+                    function delayedRestore() {
+                        restoreFromNativeWidgets();
+                        if (++ra < 20) setTimeout(delayedRestore, 300);
+                    }
+                    setTimeout(delayedRestore, 100);
+                });
                 populateStyleSelect().then(() => {
                     restoreFromNativeWidgets();
                     syncNativeWidgets();
-                    // Retry si les options n'étaient pas encore chargées
                     let ra = 0;
                     function delayedRestore() {
                         restoreFromNativeWidgets();
