@@ -27,7 +27,7 @@
                 const r = onNodeCreated?.apply(this, arguments);
                 const node = this;
 
-                // ---- Cacher le widget natif style_id (piloté par le DOM) ----
+                // ---- Cacher les widgets natifs pilotés par le DOM ----
                 const styleWidget = node.widgets?.find(x => x.name === "style_id");
                 if (styleWidget) {
                     styleWidget.hidden = true;
@@ -35,9 +35,16 @@
                     if (styleWidget.inputEl) styleWidget.inputEl.style.display = "none";
                     if (styleWidget.parentEl) styleWidget.parentEl.style.display = "none";
                 }
-                // Supprimer la socket d'entrée
-                {
-                    const slot = node.findInputSlot?.("style_id");
+                const promptTypeWidget = node.widgets?.find(x => x.name === "prompt_type");
+                if (promptTypeWidget) {
+                    promptTypeWidget.hidden = true;
+                    promptTypeWidget.computeSize = () => [0, -4];
+                    if (promptTypeWidget.inputEl) promptTypeWidget.inputEl.style.display = "none";
+                    if (promptTypeWidget.parentEl) promptTypeWidget.parentEl.style.display = "none";
+                }
+                // Supprimer les sockets d'entrée
+                for (const inputName of ["style_id", "prompt_type"]) {
+                    const slot = node.findInputSlot?.(inputName);
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
                     }
@@ -77,16 +84,27 @@
                     if (styleWidget) {
                         styleWidget.value = parseInt(styleSelect.value) || 0;
                     }
+                    if (promptTypeWidget) {
+                        promptTypeWidget.value = typeSelect.value || "ideogram4";
+                    }
                 }
 
                 function restoreFromNativeWidget() {
-                    if (!styleWidget) return false;
-                    const sid = parseInt(styleWidget.value) || 0;
-                    if (sid > 0 && [...styleSelect.options].some(o => o.value === String(sid))) {
-                        styleSelect.value = String(sid);
-                        return true;
+                    let restored = false;
+                    if (styleWidget) {
+                        const sid = parseInt(styleWidget.value) || 0;
+                        if (sid > 0 && [...styleSelect.options].some(o => o.value === String(sid))) {
+                            styleSelect.value = String(sid);
+                            restored = true;
+                        }
                     }
-                    return false;
+                    if (promptTypeWidget && promptTypeWidget.value) {
+                        if ([...typeSelect.options].some(o => o.value === promptTypeWidget.value)) {
+                            typeSelect.value = promptTypeWidget.value;
+                            restored = true;
+                        }
+                    }
+                    return restored;
                 }
 
                 async function populateStyleSelect() {
@@ -180,6 +198,7 @@
                 const styleSelect = document.createElement("select");
                 Object.assign(styleSelect.style, selectStyle);
                 styleSelect.style.flex = "1";
+                typeSelect.onchange = syncStyleWidget;
                 styleSelect.onchange = syncStyleWidget;
                 styleSelect.addEventListener("mousedown", refreshStylesIfStale);
                 const styleRefreshBtn = document.createElement("button");

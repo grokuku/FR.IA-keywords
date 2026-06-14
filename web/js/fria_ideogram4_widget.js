@@ -39,9 +39,10 @@
                 // pas dans l'UI.
                 hideWidget(node, "preset_id");
                 hideWidget(node, "style_id");
+                hideWidget(node, "prompt_type");
 
                 // ---- Supprimer les sockets d'entrée ----
-                for (const inputName of ["preset_id", "style_id"]) {
+                for (const inputName of ["preset_id", "style_id", "prompt_type"]) {
                     const slot = node.findInputSlot?.(inputName);
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
@@ -273,10 +274,12 @@
                     };
                     set("preset_id", parseInt(presetSelect.value) || 0);
                     set("style_id", parseInt(styleSelect.value) || 0);
+                    set("prompt_type", templateSelect.value || "ideogram4");
                 }
 
                 presetSelect.onchange = syncNativeWidgets;
                 styleSelect.onchange = syncNativeWidgets;
+                templateSelect.onchange = syncNativeWidgets;
 
                 // ========================================
                 // RESTORE
@@ -288,6 +291,7 @@
                     // par ComfyUI au rechargement de la page).
                     const pw = n.widgets?.find(x => x.name === "preset_id");
                     const sw = n.widgets?.find(x => x.name === "style_id");
+                    const tw = n.widgets?.find(x => x.name === "prompt_type");
                     try {
                         if (pw && pw.value > 0 && [...presetSelect.options].some(o => o.value === String(pw.value))) {
                             presetSelect.value = String(pw.value);
@@ -295,6 +299,10 @@
                         }
                         if (sw && sw.value > 0 && [...styleSelect.options].some(o => o.value === String(sw.value))) {
                             styleSelect.value = String(sw.value);
+                            restored = true;
+                        }
+                        if (tw && tw.value && [...templateSelect.options].some(o => o.value === tw.value)) {
+                            templateSelect.value = tw.value;
                             restored = true;
                         }
                     } catch {}

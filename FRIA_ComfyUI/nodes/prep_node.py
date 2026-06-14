@@ -19,7 +19,7 @@ de widgets).
 Entrées :
   - seed (INT)
   - base_prompt (STRING multiligne)
-  - prompt_type (COMBO)
+  - prompt_type (STRING)
   - style_id (INT, widget natif ou piloté par le DOM widget)
   - special_instructions (STRING)
   - elements (STRING, optionnel) — JSON du Elements Picker
@@ -47,7 +47,7 @@ class FRIAPromptPrepNode:
             "required": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "base_prompt": ("STRING", {"multiline": True, "default": ""}),
-                "prompt_type": (["sdxl", "sd15", "flux", "anima", "qwen", "liste"], {"default": "sdxl"}),
+                "prompt_type": ("STRING", {"default": "sdxl"}),
                 "style_id": ("INT", {"default": 0, "min": 0}),
                 "special_instructions": ("STRING", {"default": ""}),
             },

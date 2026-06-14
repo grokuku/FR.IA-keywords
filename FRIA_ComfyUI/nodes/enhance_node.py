@@ -28,7 +28,7 @@ class FRIAEnhanceNode:
             "required": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "base_prompt": ("STRING", {"multiline": True, "default": ""}),
-                "prompt_type": (["sdxl", "sd15", "flux", "anima", "qwen", "liste"], {"default": "sdxl"}),
+                "prompt_type": ("STRING", {"default": "sdxl"}),
                 "preset_id": ("INT", {"default": 0, "min": 0}),
                 "style_id": ("INT", {"default": 0, "min": 0}),
                 "special_instructions": ("STRING", {"default": ""}),
