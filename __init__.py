@@ -278,11 +278,15 @@ if _routes is not None and _update_manager_mod is not None:
     # Cette route est sans authentification : elle donne un shell à
     # quiconque peut atteindre le serveur ComfyUI. À n'utiliser que
     # sur localhost ou derrière un reverse proxy authentifié.
+    # NB : on utilise @_routes.get() (et non add_get) car aiohttp
+    # detecte le WebSocket via l'upgrade request — cf. comment
+    # CUI-Holaf-Utils declare sa route /holaf/terminal.
     if _terminal_mod and hasattr(_terminal_mod, "websocket_handler"):
-        _routes.add_get(
-            "/fr_ia/terminal",
-            _terminal_mod.websocket_handler,
-        )
+
+        @_routes.get("/fr_ia/terminal")  # WebSocket
+        async def _fr_ia_terminal_ws_route(request):
+            return await _terminal_mod.websocket_handler(request)
+
         print("[FR.IA] Terminal WebSocket route registered: GET /fr_ia/terminal (NO PASSWORD)")
 else:
     # Si les routes ne sont pas enregistrees, on ne fait rien de plus
