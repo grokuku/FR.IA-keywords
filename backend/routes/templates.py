@@ -7,7 +7,7 @@ from context import *
 
 @app.route('/api/prompts/templates', methods=['GET', 'POST'])
 def prompt_templates():
-    """Lister / Créer un template personnalisé."""
+    """Lister / Créer un template (personnalisé ou par défaut)."""
     guard = _login_required()
     if guard: return guard
     user_id = _get_current_user_id()
@@ -16,15 +16,21 @@ def prompt_templates():
     if request.method == 'GET':
         pt = request.args.get('prompt_type')
         fmt = request.args.get('output_format')
-        query = "SELECT * FROM prompt_templates WHERE (user_id IS NULL OR user_id = ?)"
+        # Lister les templates visibles : ceux de l'utilisateur + publics + défauts
+        query = """
+            SELECT pt.*, u.username as owner_name
+            FROM prompt_templates pt
+            LEFT JOIN users u ON pt.user_id = u.id
+            WHERE (pt.user_id = ? OR pt.is_public = 1 OR pt.is_default = 1)
+        """
         params = [user_id]
         if pt:
-            query += " AND prompt_type = ?"
+            query += " AND pt.prompt_type = ?"
             params.append(pt)
         if fmt:
-            query += " AND output_format = ?"
+            query += " AND pt.output_format = ?"
             params.append(fmt)
-        query += " ORDER BY is_default DESC, user_id NULLS FIRST"
+        query += " ORDER BY pt.is_default DESC, pt.is_public DESC, pt.updated_at DESC"
         rows = conn.execute(query, params).fetchall()
         conn.close()
         result = []
@@ -39,23 +45,22 @@ def prompt_templates():
     if not data or not data.get('prompt_type'):
         conn.close()
         return jsonify({'error': 'prompt_type requis'}), 400
+
+    name = data.get('name', '').strip() or (data['prompt_type'].strip() + ' - ' + (data.get('output_format', 'text').strip()))
     pt = data['prompt_type'].strip()
     fmt = data.get('output_format', 'text').strip()
     system_prompt = data.get('system_prompt', '').strip()
     examples = json.dumps(data.get('examples', []))
+    is_public = 1 if data.get('is_public') else 0
+
     conn.execute("""
-        INSERT INTO prompt_templates (user_id, prompt_type, output_format, system_prompt, examples, is_default)
-        VALUES (?, ?, ?, ?, ?, 0)
-        ON CONFLICT(user_id, prompt_type, output_format)
-        DO UPDATE SET system_prompt = excluded.system_prompt,
-                      examples = excluded.examples,
-                      updated_at = CURRENT_TIMESTAMP
-    """, (user_id, pt, fmt, system_prompt, examples))
+        INSERT INTO prompt_templates (user_id, name, prompt_type, output_format, system_prompt, examples, is_public, is_default)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+    """, (user_id, name, pt, fmt, system_prompt, examples, is_public))
     conn.commit()
-    template_id = conn.execute("SELECT id FROM prompt_templates WHERE user_id = ? AND prompt_type = ? AND output_format = ?",
-                                (user_id, pt, fmt)).fetchone()
+    template_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.close()
-    return jsonify({'id': template_id['id'] if template_id else None}), 201
+    return jsonify({'id': template_id}), 201
 
 
 @app.route('/api/prompts/templates/<int:template_id>', methods=['PUT', 'DELETE'])
@@ -65,18 +70,24 @@ def single_template(template_id):
     user_id = _get_current_user_id()
     conn = get_db()
     row = conn.execute("SELECT * FROM prompt_templates WHERE id = ?", (template_id,)).fetchone()
-    if not row or row['user_id'] != user_id:
+    if not row or (row['user_id'] != user_id and not row['is_default']):
         conn.close()
-        return jsonify({'error': 'Not found'}), 404
+        return jsonify({'error': 'Not found or not editable'}), 404
     if request.method == 'PUT':
         data = request.get_json()
-        system_prompt = data.get('system_prompt', row['system_prompt'])
-        ex = data.get('examples')
-        examples = json.dumps(ex) if ex is not None else row['examples']
-        conn.execute("""
-            UPDATE prompt_templates SET system_prompt = ?, examples = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        """, (system_prompt, examples, template_id))
+        if 'name' in data:
+            conn.execute("UPDATE prompt_templates SET name = ? WHERE id = ?", (data['name'].strip(), template_id))
+        if 'prompt_type' in data:
+            conn.execute("UPDATE prompt_templates SET prompt_type = ? WHERE id = ?", (data['prompt_type'].strip(), template_id))
+        if 'output_format' in data:
+            conn.execute("UPDATE prompt_templates SET output_format = ? WHERE id = ?", (data['output_format'].strip(), template_id))
+        if 'system_prompt' in data:
+            conn.execute("UPDATE prompt_templates SET system_prompt = ? WHERE id = ?", (data['system_prompt'], template_id))
+        if 'examples' in data:
+            conn.execute("UPDATE prompt_templates SET examples = ? WHERE id = ?", (json.dumps(data['examples']), template_id))
+        if 'is_public' in data:
+            conn.execute("UPDATE prompt_templates SET is_public = ? WHERE id = ?", (1 if data['is_public'] else 0, template_id))
+        conn.execute("UPDATE prompt_templates SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (template_id,))
         conn.commit()
         conn.close()
         return jsonify({'ok': True})

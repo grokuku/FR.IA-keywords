@@ -248,6 +248,13 @@ def _init_db():
     if "negative_prompt" not in cols_styles:
         conn.execute("ALTER TABLE styles ADD COLUMN negative_prompt TEXT DEFAULT ''")
 
+    # Migration : colonnes name / is_public pour les templates
+    cols_tmpl = [r[1] for r in conn.execute("PRAGMA table_info(prompt_templates)").fetchall()]
+    if "name" not in cols_tmpl:
+        conn.execute("ALTER TABLE prompt_templates ADD COLUMN name TEXT DEFAULT ''")
+    if "is_public" not in cols_tmpl:
+        conn.execute("ALTER TABLE prompt_templates ADD COLUMN is_public INTEGER DEFAULT 0")
+
     # Migration : filter_type pour les filtres composés (union)
     cols_filters = [r[1] for r in conn.execute("PRAGMA table_info(saved_filters)").fetchall()]
     if "filter_type" not in cols_filters:

@@ -92,7 +92,7 @@
       });
 
       if (tab === 'style') loadStylesTab();
-      if (tab === 'template') loadTemplate();
+      if (tab === 'template') loadTemplatesTab();
     }
 
     /* ── Theme system ── */

@@ -424,8 +424,6 @@
 
     // -- Templates Prompt --
 
-    var _tmplCache = {};
-
     function renderExamples(examples) {
       var container = document.getElementById('tmpl-examples-list');
       if (!examples || examples.length === 0) {
@@ -472,101 +470,174 @@
       renderExamples(examples);
     }
 
-    async function loadTemplate() {
-      var pt = document.getElementById('tmpl-type').value;
-      var fmt = document.getElementById('tmpl-format').value;
-      var sysEl = document.getElementById('tmpl-system-prompt');
-      var lbl = document.getElementById('tmpl-source-label');
+    // === Liste des templates (gauche) ===
+    async function loadTemplatesTab() {
+      var el = document.getElementById('templates-tab-list');
       try {
-        var res = await fetch(API + '/prompts/templates?prompt_type=' + pt + '&output_format=' + fmt);
+        var res = await fetch(API + '/prompts/templates');
         var list = await safeJson(res);
-        var tmpl = list.find(function(t){ return t.editable; }) || list.find(function(t){ return t.is_default; });
-        if (tmpl) {
-          sysEl.value = tmpl.system_prompt || '';
-          renderExamples(tmpl.examples || []);
-          lbl.textContent = tmpl.editable ? 'personnalise' : 'par defaut';
-          _tmplCache[pt + ':' + fmt] = tmpl;
-        } else {
-          sysEl.value = '';
-          renderExamples([]);
-          lbl.textContent = 'aucun';
-          _tmplCache[pt + ':' + fmt] = null;
+        if (!Array.isArray(list)) { el.innerHTML = '<p class="text-xs text-slate-400">Aucun template</p>'; return; }
+        // N'afficher que les templates personnalises (pas les defaults systeme)
+        var userTemplates = list.filter(function(t) { return !t.is_default; });
+        if (userTemplates.length === 0) {
+          el.innerHTML = '<p class="text-xs text-slate-400 italic">Aucun template personnalisé. Clique sur "+ Nouveau template".</p>';
+          return;
         }
-      } catch (err) {
-        showModal('Erreur', 'Impossible de charger le template: ' + err.message, 'error');
-      }
-    }
-
-    async function saveTemplate() {
-      var pt = document.getElementById('tmpl-type').value;
-      var fmt = document.getElementById('tmpl-format').value;
-      var sysEl = document.getElementById('tmpl-system-prompt');
-      var examples = getExamples();
-      try {
-        var res = await fetch(API + '/prompts/templates', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            prompt_type: pt,
-            output_format: fmt,
-            system_prompt: sysEl.value,
-            examples: examples
-          })
+        var html = '';
+        userTemplates.forEach(function(t){
+          var name = t.name || (t.prompt_type + ' / ' + t.output_format);
+          var author = t.owner_name || '?';
+          var pub = t.is_public ? ' 🌐' : ' 🔒';
+          var canEdit = t.editable;
+          html += '<div class="fria-tmpl-row flex flex-col px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700' +
+            (canEdit ? ' cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' : '') +
+            '" onclick="editTemplateTab(' + t.id + ')" title="Cliquer pour editer">' +
+            '<div class="flex items-center justify-between">' +
+            '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' +
+            '<span class="text-xs text-slate-400 ml-1">' + t.prompt_type + '/' + t.output_format + ' · ' + author + pub + '</span></div>' +
+            '<div class="flex gap-1 shrink-0 ml-2" onclick="event.stopPropagation()">';
+          if (canEdit) {
+            html += '<button onclick="cloneTemplateTab(' + t.id + ')" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800/50 dark:hover:bg-indigo-900/50 transition" title="Cloner">📋 Cloner</button>';
+            html += '<button onclick="deleteTemplateTab(' + t.id + ')" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800/50 dark:hover:bg-red-900/50 transition" title="Supprimer">🗑 Supprimer</button>';
+          }
+          html += '</div></div></div>';
         });
-        if (!res.ok) throw await safeJson(res);
-        showModal('Template', 'Template personnalise sauvegarde !', 'success');
-        loadTemplate();
-      } catch (err) {
-        showModal('Erreur', 'Impossible de sauvegarder: ' + err.message, 'error');
-      }
+        el.innerHTML = html;
+      } catch { el.innerHTML = '<p class="text-xs text-red-400">Erreur de chargement</p>'; }
     }
 
-    async function resetTemplate() {
-      var pt = document.getElementById('tmpl-type').value;
-      var fmt = document.getElementById('tmpl-format').value;
-      var cached = _tmplCache[pt + ':' + fmt];
-      if (cached && cached.editable && cached.id) {
-        try {
-          await fetch(API + '/prompts/templates/' + cached.id, { method: 'DELETE' });
-        } catch {}
-      }
+    // === Edition (droite) ===
+    function newTemplateTab() {
+      document.getElementById('tmpl-name').value = '';
+      document.getElementById('tmpl-name').dataset.editId = '';
+      document.getElementById('tmpl-type').value = 'sdxl';
+      document.getElementById('tmpl-format').value = 'text';
+      document.getElementById('tmpl-system-prompt').value = '';
+      document.getElementById('tmpl-public').checked = false;
+      document.getElementById('tmpl-source-label').textContent = 'Nouveau';
+      document.getElementById('btn-tmpl-save').textContent = 'Sauvegarder';
+      document.getElementById('btn-tmpl-clear').classList.remove('hidden');
+      renderExamples([]);
+    }
+
+    function editTemplateTab(id) {
+      fetch(API + '/prompts/templates').then(function(r){ return r.json(); }).then(function(list){
+        var t = list.find(function(x){ return x.id === id; });
+        if (!t) return;
+        document.getElementById('tmpl-name').value = t.name || '';
+        document.getElementById('tmpl-name').dataset.editId = id;
+        document.getElementById('tmpl-type').value = t.prompt_type || 'sdxl';
+        document.getElementById('tmpl-format').value = t.output_format || 'text';
+        document.getElementById('tmpl-system-prompt').value = t.system_prompt || '';
+        document.getElementById('tmpl-public').checked = !!t.is_public;
+        document.getElementById('tmpl-source-label').textContent = t.editable ? 'personnalisé' : (t.is_default ? 'par défaut' : 'public');
+        document.getElementById('btn-tmpl-save').textContent = 'Mettre à jour';
+        document.getElementById('btn-tmpl-clear').classList.remove('hidden');
+        renderExamples(t.examples || []);
+      }).catch(function(){});
+    }
+
+    function cloneTemplateTab(id) {
+      fetch(API + '/prompts/templates').then(function(r){ return r.json(); }).then(function(list){
+        var t = list.find(function(x){ return x.id === id; });
+        if (!t) return;
+        document.getElementById('tmpl-name').value = (t.name || '') + ' (copie)';
+        document.getElementById('tmpl-name').dataset.editId = '';
+        document.getElementById('tmpl-type').value = t.prompt_type || 'sdxl';
+        document.getElementById('tmpl-format').value = t.output_format || 'text';
+        document.getElementById('tmpl-system-prompt').value = t.system_prompt || '';
+        document.getElementById('tmpl-public').checked = false;
+        document.getElementById('tmpl-source-label').textContent = 'Nouveau (clone)';
+        document.getElementById('btn-tmpl-save').textContent = 'Sauvegarder';
+        document.getElementById('btn-tmpl-clear').classList.remove('hidden');
+        renderExamples(t.examples || []);
+      }).catch(function(){});
+    }
+
+    async function deleteTemplateTab(id) {
+      if (!confirm('Supprimer ce template ?')) return;
       try {
-        var res = await fetch(API + '/prompts/templates/defaults');
-        var defaults = await safeJson(res);
-        var def = defaults.find(function(t){ return t.prompt_type === pt && t.output_format === fmt; });
-        if (def) {
-          document.getElementById('tmpl-system-prompt').value = def.system_prompt || '';
-          renderExamples(def.examples || []);
-          document.getElementById('tmpl-source-label').textContent = 'par defaut';
-          _tmplCache[pt + ':' + fmt] = def;
-        }
-      } catch {}
+        var res = await fetch(API + '/prompts/templates/' + id, { method: 'DELETE' });
+        if (!res.ok) throw await safeJson(res);
+        loadTemplatesTab();
+        clearTemplateFormTab();
+      } catch (err) {
+        showModal('Erreur', 'Impossible de supprimer: ' + (err.message || err.error || ''), 'error');
+      }
     }
 
-    function exportTemplate() {
+    async function saveTemplateTab() {
+      var name = document.getElementById('tmpl-name').value.trim();
       var pt = document.getElementById('tmpl-type').value;
       var fmt = document.getElementById('tmpl-format').value;
       var sys = document.getElementById('tmpl-system-prompt').value;
       var examples = getExamples();
+      var isPublic = document.getElementById('tmpl-public').checked;
+      var editId = document.getElementById('tmpl-name').dataset.editId;
+
+      if (!pt) { showModal('Template', 'Type de prompt requis', 'error'); return; }
+      if (!name) { name = pt + ' - ' + fmt; document.getElementById('tmpl-name').value = name; }
+
+      try {
+        var body = {
+          name: name,
+          prompt_type: pt,
+          output_format: fmt,
+          system_prompt: sys,
+          examples: examples,
+          is_public: isPublic
+        };
+        var endpoint = '/prompts/templates';
+        var method = 'POST';
+        if (editId) { endpoint = '/prompts/templates/' + editId; method = 'PUT'; }
+        var res = await fetch(API + endpoint, {
+          method: method,
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw await safeJson(res);
+        showModal('Template', editId ? 'Template mis à jour' : 'Template sauvegardé !', 'success');
+        loadTemplatesTab();
+        document.getElementById('tmpl-source-label').textContent = 'personnalisé';
+        document.getElementById('btn-tmpl-save').textContent = 'Mettre à jour';
+      } catch (err) {
+        showModal('Erreur', (err.error || err.message || 'Erreur de sauvegarde'), 'error');
+      }
+    }
+
+    function clearTemplateFormTab() {
+      document.getElementById('tmpl-name').value = '';
+      document.getElementById('tmpl-name').dataset.editId = '';
+      document.getElementById('tmpl-system-prompt').value = '';
+      document.getElementById('tmpl-public').checked = false;
+      document.getElementById('tmpl-source-label').textContent = '';
+      document.getElementById('btn-tmpl-save').textContent = 'Sauvegarder';
+      document.getElementById('btn-tmpl-clear').classList.add('hidden');
+      renderExamples([]);
+    }
+
+    function exportTemplate() {
+      var name = document.getElementById('tmpl-name').value.trim() || 'template';
+      var pt = document.getElementById('tmpl-type').value;
+      var fmt = document.getElementById('tmpl-format').value;
+      var sys = document.getElementById('tmpl-system-prompt').value;
+      var examples = getExamples();
+      var isPublic = document.getElementById('tmpl-public').checked;
       var data = {
+        name: name,
         prompt_type: pt,
         output_format: fmt,
         system_prompt: sys,
-        examples: examples
+        examples: examples,
+        is_public: isPublic
       };
       var blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'template_' + pt + '_' + fmt + '.json';
+      a.download = 'template_' + name.replace(/[^a-zA-Z0-9]/g, '_') + '.json';
       a.click();
       URL.revokeObjectURL(a.href);
     }
-
-    document.addEventListener('change', function(e) {
-      if (e.target.id === 'tmpl-type' || e.target.id === 'tmpl-format') {
-        loadTemplate();
-      }
-    });
 
     // -- Styles --
 
