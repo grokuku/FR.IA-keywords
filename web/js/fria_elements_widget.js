@@ -233,19 +233,23 @@ function hideWidget(node, name) {
                         grip.onpointerdown = (e) => startDrag(e, idx, row);
 
                         // Icône œil (visible / masqué)
-                        const eyeBtn = document.createElement("span");
+                        const eyeBtn = document.createElement("button");
+                        eyeBtn.type = "button";
                         eyeBtn.textContent = isHidden ? "🙈" : "👁";
                         Object.assign(eyeBtn.style, {
                             cursor: "pointer", fontSize: "12px", flexShrink: "0",
                             userSelect: "none", marginRight: "2px",
+                            background: "none", border: "none", padding: "0", color: "#ccc",
+                            pointerEvents: "all",
                         });
                         eyeBtn.title = isHidden ? "Activier cette entrée" : "Masquer cette entrée";
-                        eyeBtn.onclick = (e) => {
+                        eyeBtn.addEventListener("click", (e) => {
                             e.stopPropagation();
+                            e.preventDefault();
                             item.visible = !isHidden;
                             renderList();
                             syncElementsWidget();
-                        };
+                        });
 
                         row.appendChild(grip);
                         row.appendChild(eyeBtn);
@@ -342,13 +346,12 @@ function hideWidget(node, name) {
                         ? row.nextElementSibling
                         : null;
 
-                    // Placeholder en cadre pointille bleu, hauteur reduite (moitie
-                    // d'une ligne), pour bien marquer l'emplacement de drop.
-                    const rowHeight = row.getBoundingClientRect().height;
+                    // Placeholder en cadre pointille bleu, hauteur d'une ligne,
+                    // pour bien marquer l'emplacement de drop.
                     const placeholder = document.createElement("div");
                     placeholder.className = "fria-drag-placeholder";
                     Object.assign(placeholder.style, {
-                        height: `${rowHeight / 2}px`,
+                        height: `${row.getBoundingClientRect().height}px`,
                         border: "2px dashed #60a5fa", borderRadius: "4px",
                         background: "rgba(96,165,250,0.10)",
                         marginBottom: "2px", pointerEvents: "none",
