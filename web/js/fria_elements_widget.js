@@ -260,7 +260,7 @@ function hideWidget(node, name) {
                             const textInput = document.createElement("input");
                             textInput.type = "text";
                             textInput.value = item.text || "";
-                            textInput.placeholder = "Texte custom...";
+                            textInput.placeholder = "Texte... ou A::B::C pour alternatives au hasard";
                             Object.assign(textInput.style, {
                                 flex: "1", minWidth: "0",
                                 padding: "2px 6px", borderRadius: "3px",
@@ -269,6 +269,7 @@ function hideWidget(node, name) {
                             });
                             textInput.oninput = () => {
                                 item.text = textInput.value;
+                                renderChipsBelow(row, textInput.value);
                                 syncElementsWidget();
                             };
                             row.appendChild(textInput);
@@ -307,6 +308,48 @@ function hideWidget(node, name) {
                         row.appendChild(del);
                         listEl.appendChild(row);
                     });
+                }
+
+                // Affiche des chips sous l'input texte quand celui-ci contient
+                // des alternatives separees par "::". Chaque chip est une
+                // alternative. On passe l'index de l'alternative selectionnee
+                // par le seed (ou -1 si pas encore tiree / seed nul).
+                function renderChipsBelow(row, rawText) {
+                    // Supprimer l'ancien conteneur de chips s'il existe
+                    const oldChips = row.parentElement?.querySelector(":scope > .fria-chips-row");
+                    if (oldChips) oldChips.remove();
+
+                    if (!rawText) return;
+                    const alts = rawText.split("::").map(s => s.trim()).filter(Boolean);
+                    if (alts.length < 2) return;
+
+                    // Inserer juste apres la row courante
+                    const chipsRow = document.createElement("div");
+                    chipsRow.className = "fria-chips-row";
+                    Object.assign(chipsRow.style, {
+                        display: "flex", flexWrap: "wrap", gap: "3px",
+                        marginLeft: "28px", marginBottom: "4px",
+                    });
+                    alts.forEach((alt, i) => {
+                        const chip = document.createElement("span");
+                        chip.textContent = alt;
+                        Object.assign(chip.style, {
+                            fontSize: "9px", padding: "1px 6px", borderRadius: "8px",
+                            background: "#3a3a4e", color: "#ccc",
+                            border: "1px solid #555",
+                        });
+                        chip.title = `Alternative ${i + 1}/${alts.length}`;
+                        chipsRow.appendChild(chip);
+                    });
+                    const hint = document.createElement("span");
+                    hint.textContent = `🎲 ${alts.length} alternatives`;
+                    Object.assign(hint.style, {
+                        fontSize: "9px", color: "#888", marginLeft: "4px", alignSelf: "center",
+                    });
+                    chipsRow.appendChild(hint);
+
+                    // Inserer apres la row (le conteneur parent est listEl)
+                    row.parentElement?.insertBefore(chipsRow, row.nextSibling);
                 }
 
                 // ---- Add saved filter ----
@@ -431,6 +474,35 @@ function hideWidget(node, name) {
 
                 genBtn.onclick = () => triggerGenerate(node);
 
+                // ---- Hash deterministe (pour le random par seed) ----
+                // 32-bit FNV-1a : simple, rapide, distribue raisonnablement.
+                function hash32(str) {
+                    let h = 0x811c9dc5;
+                    for (let i = 0; i < str.length; i++) {
+                        h ^= str.charCodeAt(i);
+                        h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+                    }
+                    return h >>> 0;
+                }
+
+                // Choisit 1 alternative parmi celles separees par "::".
+                // Si 1 seule (ou aucune), retourne le texte tel quel.
+                // Deterministe : meme (seed, index, texte) => meme choix.
+                // Si seed == 0 (pas de seed), random non-deterministe.
+                function pickAlternative(rawText, seed, elementIndex) {
+                    if (!rawText) return "";
+                    const alts = rawText.split("::").map(s => s.trim()).filter(Boolean);
+                    if (alts.length < 2) return rawText;
+                    if (seed <= 0) {
+                        // Pas de seed : random classique
+                        return alts[Math.floor(Math.random() * alts.length)];
+                    }
+                    // Hash du triplet (seed, index, rawText) pour eviter les
+                    // collisions entre elements ayant les memes alternatives
+                    const h = hash32(`${seed}|${elementIndex}|${rawText}`);
+                    return alts[h % alts.length];
+                }
+
                 // ---- triggerGenerate ----
                 function triggerGenerate(n) {
                     const elements = n._friaElements || [];
@@ -448,9 +520,15 @@ function hideWidget(node, name) {
                     const payload = { elements: [] };
                     if (seed > 0) payload.seed = seed;
 
-                    elements.forEach(e => {
-                        if (e.type === "filter") payload.elements.push({ type: "filter", id: e.id });
-                        else if (e.type === "text") payload.elements.push({ type: "raw", text: e.text });
+                    elements.forEach((e, idx) => {
+                        if (e.type === "filter") {
+                            payload.elements.push({ type: "filter", id: e.id });
+                        } else if (e.type === "text") {
+                            // Si le texte contient "::", choisir 1 alternative au hasard
+                            // (deterministe par seed pour reproductibilite du workflow).
+                            const chosen = pickAlternative(e.text || "", seed, idx);
+                            payload.elements.push({ type: "raw", text: chosen });
+                        }
                     });
 
                     if (randCb.checked) {

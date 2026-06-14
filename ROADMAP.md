@@ -4,7 +4,7 @@
 
 ## 🚀 État actuel (fin de session)
 
-**Contexte** : Serveur `kw.holaf.fr`, Ollama en Docker sur la même machine.
+**Contexte** : Serveur `kw.holaf.fr` (backend Flask + Discord OAuth). Le projet utilise **2 instances Ollama distinctes** + DeepSeek — voir section [Architecture Ollama](#-architecture-ollama--split-llm--embeddings) plus bas.
 
 ### ✅ Résolu cette session (bugs majeurs)
 - **`sqlite3.Row` n'a pas de `.get()`** — Cause des 500 sur `/api/presets` et `/api/styles`. Fix : helper `_row_get()` + `safeJson()` (frontend).
@@ -196,6 +196,60 @@ Styles réutilisables ajoutés aux prompts avant envoi au LLM (ex: "Hyper realis
 - [x] Affichage du nom de l'auteur à côté du nom du style
 
 ---
+
+## 🧩 Architecture Ollama (split LLM / Embeddings)
+
+> Décision de juin 2026 : **3 backends IA** distincts pour minimiser les abonnements et la charge locale.
+
+### Vue d'ensemble
+
+```
+FR.IA-keywords backend (Flask, kw.holaf.fr)
+    │
+    ├── /api/enhance/prompts, /api/ideogram/prep, etc.
+    │      │
+    │      ├─► Ollama Cloud (abonnement) ──► LLM chat (gpt-oss, deepseek-v4, qwen3.5, ...)
+    │      └─► DeepSeek API (abonnement) ──► backup LLM / raisonnement (deepseek-v4-flash, ...)
+    │
+    └── /api/search/semantic, /api/embeddings/build
+           │
+           └─► Ollama CPU distant (dédié) ──► modèle embeddings (nomic-embed-text, ...)
+                  └─ host séparé, pas de GPU nécessaire
+```
+
+### Pourquoi 3 backends
+
+| Rôle | Backend | Pourquoi celui-là |
+|---|---|---|
+| **LLM chat/generation** (Enhancer, Ideogram prep) | **Ollama Cloud** (abonnement $20/mois) | API unifiée, large choix de modèles (gpt-oss:120b, qwen3.5, kimi-k2, etc.), pas de facturation à la requête |
+| **Backup LLM** | **DeepSeek API** (abonnement) | Excellent pour le raisonnement / code, complément d'Ollama Cloud, pas de couplage avec un seul fournisseur |
+| **Embeddings** (sémantique) | **Ollama CPU distant** (dédié) | Petits modèles, peu d'appels → pas besoin de GPU ni d'API payante (Gemini abandonné pour éviter une 3ème facture + surveillance quota 1000 RPD/jour) |
+
+### Variables d'environnement
+
+| Var | Usage | Défaut |
+|---|---|---|
+| `OLLAMA_URL` | Endpoint Ollama pour les **embeddings** | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Modèle embeddings | `nomic-embed-text` |
+| `OLLAMA_URL_LLM` | Endpoint Ollama Cloud pour les **LLM** | `https://ollama.com` |
+| `OLLAMA_MODEL_LLM` | Modèle LLM par défaut | (configuré dans Presets) |
+| `DEEPSEEK_API_KEY` | Clé DeepSeek (backup LLM) | vide |
+| `DEEPSEEK_URL` | Endpoint DeepSeek | `https://api.deepseek.com/v1` |
+
+> **Note** : Les URLs sont surchargeables dynamiquement via la table `app_settings` (colonnes `ollama_url`, `ollama_model`). Le split LLM/Embeddings n'est **pas encore implémenté** dans `app.py` (les deux rôles utilisent actuellement `OLLAMA_URL`). TODO : ajouter `OLLAMA_URL_LLM` distinct dans le panneau Presets.
+
+### Décision d'abandonner Gemini pour les embeddings
+
+- Gemini gratuit = **1000 requêtes/jour max** (RPD) → trop limitant pour un rebuild de > 1000 keywords
+- L'API key Gemini ajoute une 3ème facture à surveiller (en plus d'Ollama Cloud et DeepSeek)
+- Ollama CPU distant pour embeddings = **gratuit, illimité, privé** → choix pragmatique
+- Le code Gemini reste en place dans `backend/embeddings.py` (provider = `gemini`) mais inactif par défaut
+
+### Décision d'abandonner Ollama Cloud pour les embeddings
+
+- Ollama Cloud n'expose **aucun modèle d'embedding** (vérifié sur ollama.com/search?c=cloud) — uniquement des LLM/agentic
+- Les modèles custom pushés sur ollama.com ne sont pas éligibles à l'offload Cloud automatique
+- Donc Ollama Cloud = LLM uniquement, embeddings = Ollama local (CPU ou GPU)
 
 ## 🔧 Technique
 
