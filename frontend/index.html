@@ -564,17 +564,15 @@
       <div id="main-content" class="w-full flex-1 flex flex-col overflow-hidden relative" style="display: none;">
       <!-- Empty state : centre sur l'ecran -->
       <div id="tab-prompt-helper" class="w-full flex-1 flex flex-col overflow-hidden relative">
-        <!-- Empty state : centre sur l'ecran -->
-        <div id="empty-state" class="flex flex-col items-center justify-center text-center" style="position:absolute;inset:0;z-index:20;">
-          <div id="empty-icon" class="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mb-5 dark:bg-slate-800">
-            <svg id="empty-svg" class="w-10 h-10 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-          </div>
-          <h2 id="empty-title" class="text-xl font-semibold text-slate-800 mb-2 dark:text-slate-200"></h2>
-          <p id="empty-desc" class="text-slate-500 max-w-sm mb-6 dark:text-slate-400"></p>
-          <a id="empty-btn" href="#" onclick="discordLogin();return false" class="hidden inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-lg shadow-md transition" style="background:#5865F2">Connexion avec Discord</a>
-          <button id="empty-import-btn" onclick="openImport()" class="hidden inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-md transition">Importer un fichier</button>
+      <div id="empty-state" class="flex flex-col items-center justify-center text-center" style="position:absolute;inset:0;z-index:20;">
+        <div id="empty-icon" class="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mb-5 dark:bg-slate-800">
+          <svg id="empty-svg" class="w-10 h-10 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
         </div>
-        <div id="panels-container" class="flex flex-1 overflow-hidden min-h-0">
+        <h2 id="empty-title" class="text-xl font-semibold text-slate-800 mb-2 dark:text-slate-200"></h2>
+        <p id="empty-desc" class="text-slate-500 max-w-sm mb-6 dark:text-slate-400"></p>
+        <a id="empty-btn" href="#" onclick="discordLogin();return false" class="hidden inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-lg shadow-md transition" style="background:#5865F2">Connexion avec Discord</a>
+        <button id="empty-import-btn" onclick="openImport()" class="hidden inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-md transition">Importer un fichier</button>
+      </div>      <div id="panels-container" class="flex flex-1 overflow-hidden min-h-0">
 
           <!-- PANEL GAUCHE : Keywords -->
           <div id="panel-left" class="flex flex-col overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800" style="width: 50%; min-width: 200px;">
@@ -683,18 +681,7 @@
                   </div>
                 </div>
               </div>
-            </div>
-
-      <!-- Keywords Manager tab (vide pour l'instant) -->
-      <div id="tab-keywords-manager" class="hidden w-full flex-1 flex flex-col overflow-hidden relative p-6">
-        <div class="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
-          <svg class="w-12 h-12 mb-4 text-slate-300 dark:text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
-          <h2 class="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1">Keywords Manager</h2>
-          <p class="text-sm">Cette section sera bientôt disponible.</p>
-        </div>
-      </div>
-
-      <!-- Modale gestion filtres -->
+              <!-- Modale gestion filtres -->
               <div id="modal-manage-filters" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
                 <div id="mf-modal" class="bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden dark:bg-slate-800 dark:border-slate-700" style="width: 480px; max-height: 70vh; position: relative;">
                   <div id="mf-modal-header" class="border-b border-slate-200 bg-slate-50 px-5 py-3 flex items-center justify-between cursor-grab dark:border-slate-700 dark:bg-slate-800/80 select-none">
@@ -1202,6 +1189,18 @@
         </div>
 
       </div>
+      </div>
+
+      <!-- Keywords Manager tab (vide pour l'instant) -->
+      <div id="tab-keywords-manager" class="hidden w-full flex-1 flex flex-col overflow-hidden relative p-6">
+        <div class="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
+          <svg class="w-12 h-12 mb-4 text-slate-300 dark:text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
+          <h2 class="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1">Keywords Manager</h2>
+          <p class="text-sm">Cette section sera bientôt disponible.</p>
+        </div>
+      </div>
+
+
     </div>
 
   <footer class="shrink-0 bg-slate-900 text-slate-400 text-xs border-t border-slate-800 dark:bg-slate-950 dark:border-slate-800">
