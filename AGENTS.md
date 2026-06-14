@@ -20,7 +20,7 @@
 ```
 FR.IA-keywords/
 ├── backend/          # Serveur Flask (app.py, auth.py, parser.py, etc.)
-├── frontend/         # Interface web (index.html, beta.html)
+├── frontend/         # Interface web (index.html)
 ├── FRIA_ComfyUI/     # Extension ComfyUI (nodes, web/)
 ├── web/js/           # Widgets JS pour ComfyUI
 ├── AGENTS.md         # Règles du projet
@@ -102,7 +102,7 @@ FR.IA-keywords/
 - Simplicité > complexité : peu de widgets natifs = sérialisation stable
 - Texte custom ComfyUI = raw (verbatim, pas de recherche sémantique)
 - Update mechanism : git fetch + reset --hard + os.execv restart
-- Frontend index.html et beta.html doivent rester synchronisés
+- Frontend : index.html uniquement.
 
 ## Ollama Cloud - instabilité observée
 - Ollama Cloud renvoie parfois des outputs vides OU manifestement tronqués (ex: 25 chars `masterpiece, best quality`)
