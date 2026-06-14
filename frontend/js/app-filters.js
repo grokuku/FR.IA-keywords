@@ -494,7 +494,7 @@
         if (!Array.isArray(list)) { el.innerHTML = '<p class="text-xs text-slate-400">Aucun template</p>'; return; }
         var html = '';
         list.forEach(function(t){
-          var name = t.name || (t.prompt_type + ' / ' + t.output_format);
+          var name = t.name || t.prompt_type || '?';
           var author = t.owner_name || '—';
           var pub = t.is_public ? ' 🌐' : ' 🔒';
           var isDefault = !!t.is_default;
