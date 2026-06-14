@@ -1,6 +1,7 @@
 """Routes ideogram for FR.IA backend."""
 
 from context import *
+from routes.enhance import _prepare_enhance, convert_bboxes_to_normalized
 
 
 # ── Endpoints decoupled pour Ideogram 4 ──────────────────────────
@@ -41,44 +42,48 @@ def ideogram_prep():
         f"keys={list(data.keys())} width={data.get('width')} height={data.get('height')}"
     )
 
-    prepared = _prepare_enhance(user_id, data)
-    if isinstance(prepared, tuple):  # erreur (jsonify, status)
-        return prepared
+    try:
+        prepared = _prepare_enhance(user_id, data)
+        if isinstance(prepared, tuple):  # erreur (jsonify, status)
+            return prepared
 
-    # Extraire system + user depuis llm_request['messages']
-    messages = prepared.get('llm_request', {}).get('messages', [])
-    system_prompt = ''
-    llm_prompt = ''
-    for m in messages:
-        if m.get('role') == 'system':
-            system_prompt = m.get('content', '')
-        elif m.get('role') == 'user':
-            llm_prompt = m.get('content', '')
+        # Extraire system + user depuis llm_request['messages']
+        messages = prepared.get('llm_request', {}).get('messages', [])
+        system_prompt = ''
+        llm_prompt = ''
+        for m in messages:
+            if m.get('role') == 'system':
+                system_prompt = m.get('content', '')
+            elif m.get('role') == 'user':
+                llm_prompt = m.get('content', '')
 
-    # Context : tout ce qu'il faut pour construire le prompt de validation
-    # en passe 2. width/height/style_text viennent du payload Prep.
-    # NB : on ne met PAS api_url/api_key ici pour eviter de fuiter la cle
-    # API quand l'user exporte son workflow. La Parse node a son propre
-    # widget _api_config cache, sync avec localStorage.
-    context = json.dumps({
-        'original_input': prepared.get('merged_text', ''),
-        'width': int(data.get('width') or 0),
-        'height': int(data.get('height') or 0),
-        'style_text': prepared.get('style_text', ''),
-        'model': prepared.get('model', ''),
-    }, ensure_ascii=False)
+        # Context : tout ce qu'il faut pour construire le prompt de validation
+        # en passe 2. width/height/style_text viennent du payload Prep.
+        # NB : on ne met PAS api_url/api_key ici pour eviter de fuiter la cle
+        # API quand l'user exporte son workflow. La Parse node a son propre
+        # widget _api_config cache, sync avec localStorage.
+        context = json.dumps({
+            'original_input': prepared.get('merged_text', ''),
+            'width': int(data.get('width') or 0),
+            'height': int(data.get('height') or 0),
+            'style_text': prepared.get('style_text', ''),
+            'model': prepared.get('model', ''),
+        }, ensure_ascii=False)
 
-    logging.warning(
-        f"[ideogram/prep] user={user_id} preset='{prepared['preset_name']}' "
-        f"model='{prepared['model']}' sys_len={len(system_prompt)} user_len={len(llm_prompt)}"
-    )
+        logging.warning(
+            f"[ideogram/prep] user={user_id} preset='{prepared['preset_name']}' "
+            f"model='{prepared['model']}' sys_len={len(system_prompt)} user_len={len(llm_prompt)}"
+        )
 
-    return jsonify({
-        'llm_prompt': llm_prompt,
-        'system_prompt': system_prompt,
-        'context': context,
-        'model': prepared['model'],
-    })
+        return jsonify({
+            'llm_prompt': llm_prompt,
+            'system_prompt': system_prompt,
+            'context': context,
+            'model': prepared['model'],
+        })
+    except Exception as e:
+        logging.exception(f"[ideogram/prep] ERROR user={user_id} prompt_type={data.get('prompt_type')} width={data.get('width')} height={data.get('height')}")
+        return jsonify({'error': f'Erreur serveur: {e}'}), 500
 
 
 @app.route('/api/ideogram/parse', methods=['POST'])
