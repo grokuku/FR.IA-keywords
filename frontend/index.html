@@ -519,6 +519,12 @@
             <button id="tab-btn-prompt" onclick="switchMainTab('prompt')" class="px-3 py-1.5 text-xs font-medium rounded-md bg-white/20 text-white transition">
               Prompt Helper
             </button>
+            <button id="tab-btn-style" onclick="switchMainTab('style')" class="px-3 py-1.5 text-xs font-medium rounded-md text-white/70 hover:text-white hover:bg-white/10 transition">
+              Style
+            </button>
+            <button id="tab-btn-template" onclick="switchMainTab('template')" class="px-3 py-1.5 text-xs font-medium rounded-md text-white/70 hover:text-white hover:bg-white/10 transition">
+              Template
+            </button>
             <button id="tab-btn-keywords" onclick="switchMainTab('keywords')" class="px-3 py-1.5 text-xs font-medium rounded-md text-white/70 hover:text-white hover:bg-white/10 transition">
               Keywords Manager
             </button>
@@ -1008,8 +1014,6 @@
           <!-- Tabs -->
           <div class="flex border-b border-slate-200 dark:border-slate-700 mb-3">
             <button onclick="switchSettingsTab('provider', this)" class="tab-btn px-3 py-2 text-xs font-medium text-indigo-600 dark:text-indigo-400 border-b-2 border-indigo-500 dark:border-indigo-400" data-tab="provider">Provider LLM</button>
-            <button onclick="switchSettingsTab('styles', this)" class="tab-btn px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 border-b-2 border-transparent hover:text-slate-700 dark:hover:text-slate-300" data-tab="styles">Styles</button>
-            <button onclick="switchSettingsTab('templates', this)" class="tab-btn px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 border-b-2 border-transparent hover:text-slate-700 dark:hover:text-slate-300" data-tab="templates">Templates</button>
             <button onclick="switchSettingsTab('account', this)" class="tab-btn px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 border-b-2 border-transparent hover:text-slate-700 dark:hover:text-slate-300" data-tab="account">Compte</button>
           </div>
 
@@ -1042,76 +1046,6 @@
                 <button onclick="savePreset()" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500">Sauvegarder</button>
                 <button onclick="clearPresetForm()" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md">Nouveau</button>
               </div>
-            </div>
-          </div>
-
-          <!-- Tab: Styles -->
-          <div id="tab-styles" class="tab-content hidden space-y-3">
-            <div id="styles-tab-list" class="max-h-40 overflow-y-auto space-y-1">
-              <p class="text-xs text-slate-400">Chargement...</p>
-            </div>
-            <hr class="border-slate-200 dark:border-slate-700">
-            <div class="space-y-2">
-              <input type="text" id="t-style-form-name" placeholder="Nom du style" class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-              <textarea id="t-style-form-text" rows="2" placeholder="Texte du style (ex: Hyper realistic, 1970 vintage photography)" class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md resize-none dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200"></textarea>
-              <textarea id="t-style-form-neg" rows="1" placeholder="Prompt negatif (optionnel)" class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md resize-none dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200"></textarea>
-              <label class="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                <input type="checkbox" id="t-style-form-public" class="rounded"> Public
-              </label>
-              <div class="flex gap-2">
-                <button onclick="saveStyleTab()" id="btn-t-style-save" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500">Ajouter</button>
-                <button onclick="clearStyleFormTab()" id="btn-t-style-clear" class="hidden px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md">Annuler edit</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Tab: Templates -->
-          <div id="tab-templates" class="tab-content hidden">
-            <div class="flex gap-2 mb-2">
-              <select id="tmpl-type" class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-                <option value="sdxl">SDXL</option>
-                <option value="sd15">SD 1.5</option>
-                <option value="flux">Flux</option>
-                <option value="anima">Anima</option>
-                <option value="qwen">Qwen</option>
-                <option value="ideogram4">Ideogram 4</option>
-                <option value="liste">Liste</option>
-              </select>
-              <select id="tmpl-format" class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-                <option value="text">Texte brut</option>
-                <option value="markdown">Markdown</option>
-                <option value="json">JSON</option>
-              </select>
-            </div>
-            <div class="text-xs text-slate-400 mb-2">
-              Template : <span id="tmpl-source-label">par defaut</span>
-              <button onclick="resetTemplate()" class="text-indigo-500 hover:text-indigo-700 ml-2">Reinitialiser</button>
-            </div>
-            <div class="flex gap-3" style="min-height: 300px;">
-              <!-- Left: Instructions -->
-              <div class="flex-1 flex flex-col">
-                <p class="text-xs text-slate-500 mb-1 font-semibold">Instructions</p>
-                <textarea id="tmpl-system-prompt" rows="10"
-                  class="w-full flex-1 text-xs font-mono border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200 resize-none"
-                  placeholder="System prompt pour le LLM..."></textarea>
-              </div>
-              <!-- Right: Examples -->
-              <div class="flex-1 flex flex-col">
-                <p class="text-xs text-slate-500 mb-1 font-semibold">Prompts d'exemple</p>
-                <div id="tmpl-examples-list" class="flex-1 border border-slate-200 dark:border-slate-600 rounded-md p-1.5 space-y-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-700/20" style="min-height: 180px;">
-                  <p class="text-xs text-slate-400 italic">Aucun exemple</p>
-                </div>
-                <div class="flex gap-1 mt-1">
-                  <input type="text" id="tmpl-example-input" placeholder="Nouvel exemple..."
-                    class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-                  <button onclick="addTemplateExample()" class="px-2 py-1 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-500">+</button>
-                </div>
-              </div>
-            </div>
-            <div class="flex gap-2 mt-2">
-              <button onclick="saveTemplate()" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500">Sauvegarder</button>
-              <button onclick="loadTemplate()" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md">Annuler les modifications</button>
-              <button onclick="exportTemplate()" class="px-3 py-1.5 text-xs text-indigo-500 hover:text-indigo-700 border border-indigo-300 rounded-md ml-auto">📥 Exporter</button>
             </div>
           </div>
 
@@ -1189,6 +1123,82 @@
         </div>
 
       </div>
+      </div>
+
+      <!-- Style tab -->
+      <div id="tab-styles" class="hidden w-full flex-1 flex flex-col overflow-hidden relative p-4">
+        <div class="max-w-3xl mx-auto w-full h-full flex flex-col">
+          <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-3">Styles</h2>
+          <div id="styles-tab-list" class="flex-1 overflow-y-auto space-y-1 mb-3">
+            <p class="text-xs text-slate-400">Chargement...</p>
+          </div>
+          <hr class="border-slate-200 dark:border-slate-700 mb-3">
+          <div class="space-y-2">
+            <input type="text" id="t-style-form-name" placeholder="Nom du style" class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+            <textarea id="t-style-form-text" rows="2" placeholder="Texte du style (ex: Hyper realistic, 1970 vintage photography)" class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md resize-none dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200"></textarea>
+            <textarea id="t-style-form-neg" rows="1" placeholder="Prompt negatif (optionnel)" class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md resize-none dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200"></textarea>
+            <label class="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+              <input type="checkbox" id="t-style-form-public" class="rounded"> Public
+            </label>
+            <div class="flex gap-2">
+              <button onclick="saveStyleTab()" id="btn-t-style-save" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500">Ajouter</button>
+              <button onclick="clearStyleFormTab()" id="btn-t-style-clear" class="hidden px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md">Annuler edit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Template tab -->
+      <div id="tab-templates" class="hidden w-full flex-1 flex flex-col overflow-hidden relative p-4">
+        <div class="max-w-4xl mx-auto w-full h-full flex flex-col">
+          <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-3">Templates</h2>
+          <div class="flex gap-2 mb-2">
+            <select id="tmpl-type" class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+              <option value="sdxl">SDXL</option>
+              <option value="sd15">SD 1.5</option>
+              <option value="flux">Flux</option>
+              <option value="anima">Anima</option>
+              <option value="qwen">Qwen</option>
+              <option value="ideogram4">Ideogram 4</option>
+              <option value="liste">Liste</option>
+            </select>
+            <select id="tmpl-format" class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+              <option value="text">Texte brut</option>
+              <option value="markdown">Markdown</option>
+              <option value="json">JSON</option>
+            </select>
+          </div>
+          <div class="text-xs text-slate-400 mb-2">
+            Template : <span id="tmpl-source-label">par defaut</span>
+            <button onclick="resetTemplate()" class="text-indigo-500 hover:text-indigo-700 ml-2">Reinitialiser</button>
+          </div>
+          <div class="flex gap-3 flex-1 min-h-0">
+            <!-- Left: Instructions -->
+            <div class="flex-1 flex flex-col min-h-0">
+              <p class="text-xs text-slate-500 mb-1 font-semibold">Instructions</p>
+              <textarea id="tmpl-system-prompt" rows="10"
+                class="w-full flex-1 text-xs font-mono border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200 resize-none"
+                placeholder="System prompt pour le LLM..."></textarea>
+            </div>
+            <!-- Right: Examples -->
+            <div class="flex-1 flex flex-col min-h-0">
+              <p class="text-xs text-slate-500 mb-1 font-semibold">Prompts d'exemple</p>
+              <div id="tmpl-examples-list" class="flex-1 border border-slate-200 dark:border-slate-600 rounded-md p-1.5 space-y-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-700/20" style="min-height: 180px;">
+                <p class="text-xs text-slate-400 italic">Aucun exemple</p>
+              </div>
+              <div class="flex gap-1 mt-1">
+                <input type="text" id="tmpl-example-input" placeholder="Nouvel exemple..."
+                  class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+                <button onclick="addTemplateExample()" class="px-2 py-1 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-500">+</button>
+              </div>
+            </div>
+          </div>
+          <div class="flex gap-2 mt-2">
+            <button onclick="saveTemplate()" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500">Sauvegarder</button>
+            <button onclick="loadTemplate()" class="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md">Annuler les modifications</button>
+            <button onclick="exportTemplate()" class="px-3 py-1.5 text-xs text-indigo-500 hover:text-indigo-700 border border-indigo-300 rounded-md ml-auto">📥 Exporter</button>
+          </div>
+        </div>
       </div>
 
       <!-- Keywords Manager tab (vide pour l'instant) -->
@@ -1270,29 +1280,42 @@
 
     document.addEventListener('DOMContentLoaded', initApp);
 
-    /* ── Main tabs (Prompt Helper / Keywords Manager) ── */
+    /* ── Main tabs (Prompt Helper / Style / Template / Keywords Manager) ── */
     function switchMainTab(tab) {
-      const promptTab = document.getElementById('tab-prompt-helper');
-      const keywordsTab = document.getElementById('tab-keywords-manager');
-      const promptBtn = document.getElementById('tab-btn-prompt');
-      const keywordsBtn = document.getElementById('tab-btn-keywords');
-      if (!promptTab || !keywordsTab || !promptBtn || !keywordsBtn) return;
+      const tabs = {
+        prompt: document.getElementById('tab-prompt-helper'),
+        style: document.getElementById('tab-styles'),
+        template: document.getElementById('tab-templates'),
+        keywords: document.getElementById('tab-keywords-manager')
+      };
+      const buttons = {
+        prompt: document.getElementById('tab-btn-prompt'),
+        style: document.getElementById('tab-btn-style'),
+        template: document.getElementById('tab-btn-template'),
+        keywords: document.getElementById('tab-btn-keywords')
+      };
 
-      if (tab === 'keywords') {
-        promptTab.classList.add('hidden');
-        keywordsTab.classList.remove('hidden');
-        promptBtn.classList.remove('bg-white/20', 'text-white');
-        promptBtn.classList.add('text-white/70', 'hover:text-white', 'hover:bg-white/10');
-        keywordsBtn.classList.remove('text-white/70', 'hover:text-white', 'hover:bg-white/10');
-        keywordsBtn.classList.add('bg-white/20', 'text-white');
-      } else {
-        promptTab.classList.remove('hidden');
-        keywordsTab.classList.add('hidden');
-        keywordsBtn.classList.remove('bg-white/20', 'text-white');
-        keywordsBtn.classList.add('text-white/70', 'hover:text-white', 'hover:bg-white/10');
-        promptBtn.classList.remove('text-white/70', 'hover:text-white', 'hover:bg-white/10');
-        promptBtn.classList.add('bg-white/20', 'text-white');
-      }
+      Object.keys(tabs).forEach(function(key) {
+        if (tabs[key]) {
+          if (key === tab) tabs[key].classList.remove('hidden');
+          else tabs[key].classList.add('hidden');
+        }
+      });
+
+      Object.keys(buttons).forEach(function(key) {
+        var btn = buttons[key];
+        if (!btn) return;
+        if (key === tab) {
+          btn.classList.remove('text-white/70', 'hover:text-white', 'hover:bg-white/10');
+          btn.classList.add('bg-white/20', 'text-white');
+        } else {
+          btn.classList.remove('bg-white/20', 'text-white');
+          btn.classList.add('text-white/70', 'hover:text-white', 'hover:bg-white/10');
+        }
+      });
+
+      if (tab === 'style') loadStylesTab();
+      if (tab === 'template') loadTemplate();
     }
 
     /* ── Theme system ── */
@@ -2087,7 +2110,8 @@
       m.classList.remove('hidden');
       m.classList.add('flex');
       makeModalDraggable('usettings-modal-header', 'usettings-modal');
-      switchSettingsTab('provider', document.querySelector('.tab-btn'));
+      var providerBtn = m.querySelector('.tab-btn[data-tab="provider"]');
+      switchSettingsTab('provider', providerBtn || m.querySelector('.tab-btn'));
       loadPresets();
       loadApiKeySettings();
       if (currentUser && currentUser.role === 'admin') {
@@ -2117,15 +2141,14 @@
     }
 
     function switchSettingsTab(tab, btn) {
-      document.querySelectorAll('.tab-content').forEach(function(el){ el.classList.add('hidden'); });
-      document.querySelectorAll('.tab-btn').forEach(function(el){
+      document.querySelectorAll('#modal-user-settings .tab-content').forEach(function(el){ el.classList.add('hidden'); });
+      document.querySelectorAll('#modal-user-settings .tab-btn').forEach(function(el){
         el.classList.remove('text-indigo-600', 'dark:text-indigo-400', 'border-indigo-500', 'dark:border-indigo-400');
         el.classList.add('text-slate-500', 'dark:text-slate-400', 'border-transparent');
       });
       document.getElementById('tab-' + tab).classList.remove('hidden');
       btn.classList.remove('text-slate-500', 'dark:text-slate-400', 'border-transparent');
       btn.classList.add('text-indigo-600', 'dark:text-indigo-400', 'border-indigo-500', 'dark:border-indigo-400');
-      if (tab === 'styles') loadStylesTab();
     }
 
     async function loadStylesTab() {
