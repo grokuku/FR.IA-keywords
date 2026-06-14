@@ -181,19 +181,42 @@
                 presetDiv.appendChild(presetRow);
                 grid.appendChild(presetDiv);
 
-                // Type (top-right)
+                // Template (top-right)
                 const typeDiv = document.createElement("div");
                 const typeSelect = document.createElement("select");
                 Object.assign(typeSelect.style, selectStyle);
-                ["SDXL", "SD1.5", "Flux", "Anima", "Qwen", "Liste"].forEach(v => {
-                    const o = document.createElement("option");
-                    o.value = v.toLowerCase(); o.textContent = v;
-                    typeSelect.appendChild(o);
-                });
                 typeSelect.onchange = syncNativeWidgets;
-                typeDiv.appendChild(mkLabel("Type"));
+                typeDiv.appendChild(mkLabel("Template"));
                 typeDiv.appendChild(typeSelect);
                 grid.appendChild(typeDiv);
+
+                async function loadEnhanceTemplates() {
+                    typeSelect.innerHTML = '<option value="">-- Chargement --</option>';
+                    try {
+                        const items = await apiGet("prompts/templates");
+                        if (!Array.isArray(items) || items.length === 0) {
+                            typeSelect.innerHTML = '<option value="">-- Template --</option>';
+                            return;
+                        }
+                        const current = typeSelect.value;
+                        const pw = node.widgets?.find(x => x.name === "prompt_type");
+                        typeSelect.innerHTML = '';
+                        items.forEach(t => {
+                            const o = document.createElement("option");
+                            o.value = t.prompt_type;
+                            o.textContent = t.name || t.prompt_type;
+                            typeSelect.appendChild(o);
+                        });
+                        if (current && [...typeSelect.options].some(o => o.value === current)) {
+                            typeSelect.value = current;
+                        } else if (pw && pw.value && [...typeSelect.options].some(o => o.value === pw.value)) {
+                            typeSelect.value = pw.value;
+                        }
+                    } catch {
+                        typeSelect.innerHTML = '<option value="">-- Template --</option>';
+                    }
+                }
+                typeSelect.addEventListener("mousedown", loadEnhanceTemplates);
 
                 // Style (bottom-left, prend toute la largeur)
                 const styleDiv = document.createElement("div");
@@ -255,6 +278,7 @@
                 widget.computeSize = () => [node.size[0] - 20, 240];
 
                 // ---- Initialisation ----
+                loadEnhanceTemplates();
                 populateSelect(presetSelect, "presets", "name", "id", "-- Preset IA --").then(() => {
                     populateSelect(styleSelect, "styles", "name", "id", "-- Style --").then(() => {
                         restoreFromNativeWidgets();
