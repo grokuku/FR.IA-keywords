@@ -43,10 +43,10 @@
                         if (w.parentEl) w.parentEl.style.display = "none";
                     }
                 };
-                ["prompt_type", "style_id"].forEach(n => hideWidget(node, n));
+                ["prompt_type_id", "style_id"].forEach(n => hideWidget(node, n));
 
                 // ---- Supprimer les sockets d'entrée ----
-                for (const inputName of ["prompt_type", "style_id"]) {
+                for (const inputName of ["prompt_type_id", "style_id"]) {
                     const slot = node.findInputSlot?.(inputName);
                     if (slot !== undefined && slot !== -1) {
                         node.removeInput(slot);
@@ -54,7 +54,7 @@
                 }
 
                 // Refs vers les widgets natifs (utiles pour le sync)
-                const promptTypeWidget = node.widgets?.find(x => x.name === "prompt_type");
+                const promptTypeWidget = node.widgets?.find(x => x.name === "prompt_type_id");
                 const styleWidget = node.widgets?.find(x => x.name === "style_id");
 
                 // ---- Cache de rafraîchissement ----
@@ -88,16 +88,17 @@
                 };
 
                 function syncNativeWidgets() {
-                    if (promptTypeWidget) promptTypeWidget.value = typeSelect.value;
+                    if (promptTypeWidget) promptTypeWidget.value = parseInt(typeSelect.value) || 0;
                     if (styleWidget) styleWidget.value = parseInt(styleSelect.value) || 0;
                 }
 
                 // Restaurer la selection des dropdowns depuis les widgets natifs
                 // (restaures par ComfyUI au rechargement de la page)
                 function restoreFromNativeWidgets() {
-                    if (promptTypeWidget && promptTypeWidget.value) {
-                        if ([...typeSelect.options].some(o => o.value === promptTypeWidget.value)) {
-                            typeSelect.value = promptTypeWidget.value;
+                    if (promptTypeWidget && promptTypeWidget.value > 0) {
+                        const tid = parseInt(promptTypeWidget.value) || 0;
+                        if (tid > 0 && [...typeSelect.options].some(o => o.value === String(tid))) {
+                            typeSelect.value = String(tid);
                         }
                     }
                     if (styleWidget) {
@@ -162,42 +163,39 @@
                     color: "#ccc", fontSize: "11px", cursor: "pointer",
                 };
 
-                // Type (gauche) — peuplé depuis /api/prompts/templates
+                // Type (gauche) — peuplé depuis /api/prompts/templates (meme pattern que Style)
                 const typeDiv = document.createElement("div");
                 const typeSelect = document.createElement("select");
                 Object.assign(typeSelect.style, selectStyle);
                 typeSelect.onchange = syncNativeWidgets;
+                typeSelect.addEventListener("mousedown", () => refreshIfStale(typeSelect, "prompts/templates", "tmpl"));
                 typeDiv.appendChild(mkLabel("Template"));
                 typeDiv.appendChild(typeSelect);
                 grid.appendChild(typeDiv);
 
-                async function loadPrepTemplates() {
-                    const current = typeSelect.value;
-                    typeSelect.innerHTML = '<option value="">-- Chargement --</option>';
+                async function populateSelect(select, apiPath) {
+                    select.innerHTML = `<option value="0">-- Chargement --</option>`;
                     try {
-                        const apiUrl = getApiUrl();
-                        const resp = await fetch(apiUrl + '/prompts/templates', { headers: apiHeaders() });
-                        const list = resp.ok ? await resp.json() : [];
-                        if (!Array.isArray(list) || list.length === 0) return;
-                        typeSelect.innerHTML = '';
-                        list.forEach(t => {
-                            const o = document.createElement("option");
-                            o.value = t.prompt_type;
-                            o.textContent = t.name || t.prompt_type;
-                            typeSelect.appendChild(o);
-                        });
-                        // Restaurer la selection precedente, ou le widget natif
-                        const pw = node.widgets?.find(x => x.name === "prompt_type");
-                        if (current && [...typeSelect.options].some(o => o.value === current)) {
-                            typeSelect.value = current;
-                        } else if (pw && pw.value && [...typeSelect.options].some(o => o.value === pw.value)) {
-                            typeSelect.value = pw.value;
+                        const items = await apiGet(apiPath);
+                        if (Array.isArray(items) && items.length > 0) {
+                            select.innerHTML = '';
+                            items.forEach(item => {
+                                const o = document.createElement("option");
+                                o.value = String(item.id);
+                                o.textContent = item.name || item.prompt_type;
+                                select.appendChild(o);
+                            });
                         }
-                        // sync apres restauration (programmatic value ne declenche pas onchange)
-                        syncNativeWidgets();
                     } catch {}
                 }
-                typeSelect.addEventListener("mousedown", loadPrepTemplates);
+                async function refreshIfStale(select, apiPath, cacheKey) {
+                    const now = Date.now();
+                    if (now - (_cache[cacheKey] || 0) < CACHE_TTL) return;
+                    _cache[cacheKey] = now;
+                    const oldVal = select.value;
+                    await populateSelect(select, apiPath);
+                    if (oldVal !== "0" && [...select.options].some(o => o.value === oldVal)) select.value = oldVal;
+                }
 
                 // Style (droite) — peuplé depuis /api/styles
                 const styleDiv = document.createElement("div");
@@ -239,7 +237,7 @@
                 widget.computeSize = () => [node.size[0] - 20, 110];
 
                 // ---- Initialisation ----
-                loadPrepTemplates().then(() => {
+                populateSelect(typeSelect, "prompts/templates").then(() => {
                     restoreFromNativeWidgets();
                     syncNativeWidgets();
                     // Retry si les options n'etaient pas encore chargees

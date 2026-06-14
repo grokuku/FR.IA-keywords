@@ -86,12 +86,12 @@
 
                 // ---- Restauration depuis widgets natifs (au rechargement) ----
                 function restoreFromNativeWidgets() {
-                    const ptw = node.widgets?.find(x => x.name === "prompt_type");
+                    const ptw = node.widgets?.find(x => x.name === "prompt_type_id");
                     const pw = node.widgets?.find(x => x.name === "preset_id");
                     const sw = node.widgets?.find(x => x.name === "style_id");
-                    if (ptw && ptw.value) {
-                        if ([...typeSelect.options].some(o => o.value === ptw.value)) {
-                            typeSelect.value = ptw.value;
+                    if (ptw && ptw.value > 0) {
+                        if ([...typeSelect.options].some(o => o.value === String(ptw.value))) {
+                            typeSelect.value = String(ptw.value);
                         }
                     }
                     if (pw && pw.value > 0 && [...presetSelect.options].some(o => o.value === String(pw.value))) {
