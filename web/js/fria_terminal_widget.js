@@ -444,7 +444,18 @@
                 this.fitAddon = new window.FitAddon.FitAddon();
                 this.terminal.loadAddon(this.fitAddon);
                 this.terminal.open(this.xtermContainer);
-                setTimeout(() => this._fit(), 30);
+
+                // Refit apres que la flexbox ait calcule sa taille finale.
+                // requestAnimationFrame peut ne pas suffire si la page
+                // est en train de charger (fonts, CSS, layout async).
+                // On force plusieurs fits sur quelques ticks.
+                const refitSequence = () => {
+                    [0, 50, 150, 400].forEach(delay => {
+                        setTimeout(() => this._fit(), delay);
+                    });
+                };
+                // Attendre 2 frames pour etre sur que le layout est pose
+                requestAnimationFrame(() => requestAnimationFrame(refitSequence));
 
                 this.terminal.onData(data => {
                     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
@@ -484,9 +495,16 @@
                 });
             });
             this._resizeObserver.observe(this.xtermContainer);
-        } else {
-            // Fallback : window resize seulement
-            window.addEventListener("resize", () => this._fit());
+        }
+
+        // Ecouter aussi window.resize : certains changements CSS (media
+        // queries, scrollbars qui apparaissent/disparaissent) modifient la
+        // taille du container sans qu'il y ait un vrai resize. Le
+        // ResizeObserver devrait normalement suffire, mais window.resize
+        // est un filet de securite pour les cas tordus.
+        if (!this._onWindowResize) {
+            this._onWindowResize = () => this._fit();
+            window.addEventListener("resize", this._onWindowResize);
         }
 
         // Open WebSocket
