@@ -484,13 +484,19 @@
           var pub = t.is_public ? ' 🌐' : ' 🔒';
           var isDefault = !!t.is_default;
           var canEdit = t.editable && !isDefault;
-          var tag = isDefault ? ' <span class="text-[9px] text-amber-500 font-medium">defaut</span>' : '';
+          var typeLabel = t.prompt_type ? t.prompt_type.toUpperCase() : '?';
+          var fmtLabel = t.output_format || 'text';
+          var tag = isDefault ? '<span class="text-[9px] text-amber-500 font-medium ml-1">système</span>' : '';
+          if (!isDefault && canEdit) tag += ' <span class="text-[9px] text-indigo-500 font-medium ml-0.5">moi</span>';
           html += '<div class="fria-tmpl-row flex flex-col px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700' +
             (canEdit ? ' cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' : '') +
             '" onclick="editTemplateTab(' + t.id + ')" title="Cliquer pour editer">' +
             '<div class="flex items-center justify-between">' +
-            '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' + tag +
-            '<span class="text-xs text-slate-400 ml-1">' + t.prompt_type + '/' + t.output_format + ' · ' + author + pub + '</span></div>' +
+            '<div><span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded ' +
+            (isDefault ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400') +
+            '">' + typeLabel + ' · ' + fmtLabel + '</span>' +
+            '<span class="text-xs text-slate-700 dark:text-slate-300 ml-2">' + name + '</span>' + tag +
+            '<span class="text-xs text-slate-400 ml-1">' + author + pub + '</span></div>' +
             '<div class="flex gap-1 shrink-0 ml-2" onclick="event.stopPropagation()">';
           if (canEdit) {
             html += '<button onclick="cloneTemplateTab(' + t.id + ')" class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800/50 dark:hover:bg-indigo-900/50 transition" title="Cloner">📋 Cloner</button>';
@@ -510,7 +516,6 @@
       document.getElementById('tmpl-format').value = 'text';
       document.getElementById('tmpl-system-prompt').value = '';
       document.getElementById('tmpl-public').checked = false;
-      document.getElementById('tmpl-source-label').textContent = 'Nouveau';
       document.getElementById('btn-tmpl-save').textContent = 'Sauvegarder';
       document.getElementById('btn-tmpl-clear').classList.remove('hidden');
       renderExamples([]);
@@ -526,7 +531,6 @@
         document.getElementById('tmpl-system-prompt').value = t.system_prompt || '';
         document.getElementById('tmpl-public').checked = !!t.is_public;
         var isDef = !!t.is_default;
-        document.getElementById('tmpl-source-label').textContent = isDef ? 'système (modifier créera une copie)' : (t.editable ? 'personnalisé' : 'public');
         // Pour les templates systeme, on ne met pas d'editId → POST = creation
         if (isDef) {
           document.getElementById('tmpl-name').dataset.editId = '';
@@ -550,7 +554,6 @@
         document.getElementById('tmpl-format').value = t.output_format || 'text';
         document.getElementById('tmpl-system-prompt').value = t.system_prompt || '';
         document.getElementById('tmpl-public').checked = false;
-        document.getElementById('tmpl-source-label').textContent = 'Nouveau (clone)';
         document.getElementById('btn-tmpl-save').textContent = 'Sauvegarder';
         document.getElementById('btn-tmpl-clear').classList.remove('hidden');
         renderExamples(t.examples || []);
@@ -601,7 +604,6 @@
         if (!res.ok) throw await safeJson(res);
         showModal('Template', editId ? 'Template mis à jour' : 'Template sauvegardé !', 'success');
         loadTemplatesTab();
-        document.getElementById('tmpl-source-label').textContent = 'personnalisé';
         document.getElementById('btn-tmpl-save').textContent = 'Mettre à jour';
       } catch (err) {
         showModal('Erreur', (err.error || err.message || 'Erreur de sauvegarde'), 'error');
@@ -613,7 +615,6 @@
       document.getElementById('tmpl-name').dataset.editId = '';
       document.getElementById('tmpl-system-prompt').value = '';
       document.getElementById('tmpl-public').checked = false;
-      document.getElementById('tmpl-source-label').textContent = '';
       document.getElementById('btn-tmpl-save').textContent = 'Sauvegarder';
       document.getElementById('btn-tmpl-clear').classList.add('hidden');
       renderExamples([]);
