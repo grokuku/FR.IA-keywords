@@ -283,9 +283,10 @@ function hideWidget(node, name) {
 
                 // ---- Drag & drop reorder (pointer events) ----
                 // Le handle ⠿ de chaque ligne declenche un drag fluide :
-                // - clone fantome qui suit le curseur
-                // - les elements de la liste se reordonnent en temps reel autour
-                //   d'un placeholder de la taille de la ligne deplacee
+                // - clone fantome qui suit le curseur, a taille identique aux autres lignes
+                // - placeholder reduit (fine barre) indiquant l'emplacement de drop
+                // - les elements glissent avec une petite animation FLIP quand le
+                //   placeholder change de position
                 // - reordonnancement deterministe de node._friaElements
                 let dragState = null;
 
@@ -300,30 +301,38 @@ function hideWidget(node, name) {
                     const ghost = row.cloneNode(true);
                     Object.assign(ghost.style, {
                         position: "fixed", left: `${rect.left}px`, top: `${rect.top}px`,
-                        width: `${rect.width}px`, opacity: "0.9", pointerEvents: "none",
-                        zIndex: "10000", boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-                        transform: "scale(1.02)",
+                        width: `${rect.width}px`, opacity: "0.92", pointerEvents: "none",
+                        zIndex: "10000",
+                        // Ombre tres legere, pas de scale : le fantome a exactement
+                        // la meme taille que les autres elements.
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
                     });
                     document.body.appendChild(ghost);
 
-                    // Extraire la ligne reelle et ses chips du DOM et les garder
-                    // dans dragState. Un placeholder prend leur place : les autres
-                    // lignes glissent naturellement autour de lui.
+                    // Extraire la ligne reelle et ses chips du DOM.
                     const chipsRow = row.nextElementSibling?.classList?.contains("fria-chips-row")
                         ? row.nextElementSibling
                         : null;
+
+                    // Placeholder fin (4px) avec fond bleu : il ne prend pas toute
+                    // la hauteur de la ligne, juste une barre d'insertion.
                     const placeholder = document.createElement("div");
                     placeholder.className = "fria-drag-placeholder";
                     Object.assign(placeholder.style, {
-                        border: "2px dashed #60a5fa", borderRadius: "4px",
-                        background: "rgba(96,165,250,0.08)", marginBottom: "2px",
-                        pointerEvents: "none",
+                        height: "4px", borderRadius: "2px",
+                        background: "#60a5fa",
+                        margin: "2px 0", pointerEvents: "none",
+                        transition: "transform 0.12s ease-out",
                     });
-                    placeholder.style.height = `${row.getBoundingClientRect().height}px`;
 
                     listEl.insertBefore(placeholder, row.nextSibling);
                     row.remove();
                     if (chipsRow) chipsRow.remove();
+
+                    // Activer les transitions sur toutes les lignes restantes.
+                    listEl.querySelectorAll(".fria-element-row").forEach(r => {
+                        r.style.transition = "transform 0.15s ease-out";
+                    });
 
                     const gripInGhost = ghost.querySelector("span");
                     if (gripInGhost) gripInGhost.style.color = "#fff";
@@ -348,12 +357,9 @@ function hideWidget(node, name) {
                 function onPointerMove(e) {
                     if (!dragState) return;
                     e.preventDefault();
-                    const { ghost, offsetY, draggedEls } = dragState;
+                    const { ghost, offsetY } = dragState;
                     ghost.style.top = `${e.clientY - offsetY}px`;
 
-                    // Calculer l'index cible en comparant le curseur au milieu de chaque
-                    // ligne *visible* (sans compter le placeholder).
-                    const placeholder = listEl.querySelector(".fria-drag-placeholder");
                     const rows = Array.from(listEl.querySelectorAll(".fria-element-row"));
                     let targetIdx = rows.length;
                     for (let i = 0; i < rows.length; i++) {
@@ -366,19 +372,47 @@ function hideWidget(node, name) {
                     }
 
                     if (targetIdx !== dragState.currentIdx) {
+                        const placeholder = listEl.querySelector(".fria-drag-placeholder");
+                        if (placeholder) {
+                            flipMovePlaceholder(targetIdx, placeholder);
+                        }
                         dragState.currentIdx = targetIdx;
-                        movePlaceholder(targetIdx, placeholder);
                     }
                 }
 
-                function movePlaceholder(targetIdx, placeholder) {
-                    if (!placeholder) return;
+                // Deplace le placeholder dans le DOM en animant les autres lignes
+                // via la technique FLIP (First/Last/Invert/Play).
+                function flipMovePlaceholder(targetIdx, placeholder) {
                     const rows = Array.from(listEl.querySelectorAll(".fria-element-row"));
+
+                    // 1. First : positions avant le deplacement.
+                    const before = rows.map(r => r.getBoundingClientRect().top);
+
+                    // 2. Last : deplacer le placeholder dans le DOM.
                     if (targetIdx >= rows.length) {
                         listEl.appendChild(placeholder);
                     } else {
                         listEl.insertBefore(placeholder, rows[targetIdx]);
                     }
+
+                    // 3. Invert : calculer le delta pour chaque ligne et appliquer
+                    //    un transform qui l'amene a sa position d'origine.
+                    rows.forEach((r, i) => {
+                        const after = r.getBoundingClientRect().top;
+                        const delta = before[i] - after;
+                        if (delta !== 0) {
+                            r.style.transition = "none";
+                            r.style.transform = `translateY(${delta}px)`;
+                        }
+                    });
+
+                    // 4. Play : forcer un reflow puis retirer le transform pour
+                    //    declencher la transition.
+                    listEl.offsetHeight; // force reflow
+                    rows.forEach((r) => {
+                        r.style.transition = "transform 0.15s ease-out";
+                        r.style.transform = "";
+                    });
                 }
 
                 function onPointerUp(e) {
@@ -399,9 +433,14 @@ function hideWidget(node, name) {
                         items.splice(insertIdx, 0, moved);
                     }
 
+                    // Nettoyer les transitions forcees sur les lignes restantes.
+                    listEl.querySelectorAll(".fria-element-row").forEach(r => {
+                        r.style.transition = "";
+                        r.style.transform = "";
+                    });
+
                     // Replacer la ligne reelle + ses chips a la position du placeholder
                     if (placeholder) {
-                        // Remettre les chips visibles avant reinsertion
                         draggedEls.chips?.style?.removeProperty("display");
                         listEl.insertBefore(draggedEls.row, placeholder);
                         if (draggedEls.chips) {
