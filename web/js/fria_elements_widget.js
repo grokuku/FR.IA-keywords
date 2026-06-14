@@ -315,6 +315,13 @@ function hideWidget(node, name) {
                         };
                         row.appendChild(del);
                         listEl.appendChild(row);
+
+                        // Restaurer les chips d'alternatives (::) si l'element
+                        // est un texte et contient des alternatives. renderChipsBelow
+                        // verifie elle-meme si le contenu le justifie.
+                        if (item.type === "text" && item.text) {
+                            renderChipsBelow(row, item.text);
+                        }
                     });
                 }
 
