@@ -197,6 +197,19 @@ def _render_preview(prompt_text, width, height):
 
     elements = (caption.get("compositional_deconstruction") or {}).get("elements") or []
     background = (caption.get("compositional_deconstruction") or {}).get("background") or ""
+    if not isinstance(background, str):
+        background = json.dumps(background, ensure_ascii=False) if isinstance(background, (dict, list)) else str(background)
+    background = background.strip()
+
+    if not elements and not background:
+        # Sortie texte ou JSON sans structure Ideogram 4 : afficher le prompt brut
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", max(16, width // 40))
+        except Exception:
+            font = ImageFont.load_default()
+        display_text = prompt_text.strip() if prompt_text else "No output"
+        _wrap_text(draw, display_text, 12, 12, width - 24, font, max(18, width // 50), 20)
+        return _to_comfy_image(img)
 
     try:
         font_pill = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", max(20, width // 40))
