@@ -477,23 +477,19 @@
         var res = await fetch(API + '/prompts/templates');
         var list = await safeJson(res);
         if (!Array.isArray(list)) { el.innerHTML = '<p class="text-xs text-slate-400">Aucun template</p>'; return; }
-        // N'afficher que les templates personnalises (pas les defaults systeme)
-        var userTemplates = list.filter(function(t) { return !t.is_default; });
-        if (userTemplates.length === 0) {
-          el.innerHTML = '<p class="text-xs text-slate-400 italic">Aucun template personnalisé. Clique sur "+ Nouveau template".</p>';
-          return;
-        }
         var html = '';
-        userTemplates.forEach(function(t){
+        list.forEach(function(t){
           var name = t.name || (t.prompt_type + ' / ' + t.output_format);
-          var author = t.owner_name || '?';
+          var author = t.owner_name || 'Admin';
           var pub = t.is_public ? ' 🌐' : ' 🔒';
-          var canEdit = t.editable;
+          var isDefault = !!t.is_default;
+          var canEdit = t.editable && !isDefault;
+          var tag = isDefault ? ' <span class="text-[9px] text-amber-500 font-medium">defaut</span>' : '';
           html += '<div class="fria-tmpl-row flex flex-col px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700' +
             (canEdit ? ' cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' : '') +
             '" onclick="editTemplateTab(' + t.id + ')" title="Cliquer pour editer">' +
             '<div class="flex items-center justify-between">' +
-            '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' +
+            '<div><span class="text-xs font-medium text-slate-700 dark:text-slate-300">' + name + '</span>' + tag +
             '<span class="text-xs text-slate-400 ml-1">' + t.prompt_type + '/' + t.output_format + ' · ' + author + pub + '</span></div>' +
             '<div class="flex gap-1 shrink-0 ml-2" onclick="event.stopPropagation()">';
           if (canEdit) {
@@ -502,7 +498,7 @@
           }
           html += '</div></div></div>';
         });
-        el.innerHTML = html;
+        el.innerHTML = html || '<p class="text-xs text-slate-400 italic">Aucun template. Clique sur "+ Nouveau template".</p>';
       } catch { el.innerHTML = '<p class="text-xs text-red-400">Erreur de chargement</p>'; }
     }
 
@@ -525,13 +521,20 @@
         var t = list.find(function(x){ return x.id === id; });
         if (!t) return;
         document.getElementById('tmpl-name').value = t.name || '';
-        document.getElementById('tmpl-name').dataset.editId = id;
         document.getElementById('tmpl-type').value = t.prompt_type || 'sdxl';
         document.getElementById('tmpl-format').value = t.output_format || 'text';
         document.getElementById('tmpl-system-prompt').value = t.system_prompt || '';
         document.getElementById('tmpl-public').checked = !!t.is_public;
-        document.getElementById('tmpl-source-label').textContent = t.editable ? 'personnalisé' : (t.is_default ? 'par défaut' : 'public');
-        document.getElementById('btn-tmpl-save').textContent = 'Mettre à jour';
+        var isDef = !!t.is_default;
+        document.getElementById('tmpl-source-label').textContent = isDef ? 'système (modifier créera une copie)' : (t.editable ? 'personnalisé' : 'public');
+        // Pour les templates systeme, on ne met pas d'editId → POST = creation
+        if (isDef) {
+          document.getElementById('tmpl-name').dataset.editId = '';
+          document.getElementById('btn-tmpl-save').textContent = 'Sauvegarder';
+        } else {
+          document.getElementById('tmpl-name').dataset.editId = t.editable ? id : '';
+          document.getElementById('btn-tmpl-save').textContent = t.editable ? 'Mettre à jour' : 'Sauvegarder';
+        }
         document.getElementById('btn-tmpl-clear').classList.remove('hidden');
         renderExamples(t.examples || []);
       }).catch(function(){});
