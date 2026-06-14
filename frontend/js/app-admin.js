@@ -25,9 +25,37 @@
     }
 
     // Charger presets et styles au demarrage
+    // Charger les types depuis les templates disponibles
+    async function loadTemplateTypes() {
+      try {
+        var res = await fetch(API + '/prompts/templates');
+        var list = await safeJson(res);
+        if (!Array.isArray(list)) return;
+        var sel = document.getElementById('enhance-type');
+        if (!sel) return;
+        // Recuperer les types existants (hardcodes)
+        var existing = {};
+        for (var i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value) existing[sel.options[i].value] = true;
+        }
+        // Ajouter les nouveaux types venant des templates
+        list.forEach(function(t) {
+          var pt = t.prompt_type;
+          if (pt && !existing[pt]) {
+            var opt = document.createElement('option');
+            opt.value = pt;
+            opt.textContent = t.name || pt.toUpperCase();
+            sel.appendChild(opt);
+            existing[pt] = true;
+          }
+        });
+      } catch {}
+    }
+
     async function loadEnhancerConfig() {
       await loadPresets();
       await loadStyles();
+      await loadTemplateTypes();
       // Restaurer les autres preferences sauvegardees
       if (currentUser && currentUser.settings) {
         var s = currentUser.settings;

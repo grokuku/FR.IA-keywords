@@ -42,12 +42,13 @@ def prompt_templates():
         return jsonify(result)
 
     data = request.get_json()
-    if not data or not data.get('prompt_type'):
+    if not data or not data.get('name'):
         conn.close()
-        return jsonify({'error': 'prompt_type requis'}), 400
+        return jsonify({'error': 'name requis'}), 400
 
-    name = data.get('name', '').strip() or (data['prompt_type'].strip() + ' - ' + (data.get('output_format', 'text').strip()))
-    pt = data['prompt_type'].strip()
+    name = data['name'].strip()
+    # Le nom du template devient son prompt_type (ex: "patate" → "patate")
+    pt = data.get('prompt_type', '').strip() or name.lower().replace(' ', '_')
     fmt = data.get('output_format', 'text').strip()
     system_prompt = data.get('system_prompt', '').strip()
     examples = json.dumps(data.get('examples', []))
@@ -76,9 +77,8 @@ def single_template(template_id):
     if request.method == 'PUT':
         data = request.get_json()
         if 'name' in data:
-            conn.execute("UPDATE prompt_templates SET name = ? WHERE id = ?", (data['name'].strip(), template_id))
-        if 'prompt_type' in data:
-            conn.execute("UPDATE prompt_templates SET prompt_type = ? WHERE id = ?", (data['prompt_type'].strip(), template_id))
+            name = data['name'].strip()
+            conn.execute("UPDATE prompt_templates SET name = ?, prompt_type = ? WHERE id = ?", (name, name.lower().replace(' ', '_'), template_id))
         if 'output_format' in data:
             conn.execute("UPDATE prompt_templates SET output_format = ? WHERE id = ?", (data['output_format'].strip(), template_id))
         if 'system_prompt' in data:

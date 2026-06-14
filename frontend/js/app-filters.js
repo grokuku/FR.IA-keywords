@@ -422,6 +422,18 @@
       }
     }
 
+    function exportStyle() {
+      var name = document.getElementById('t-style-form-name').value.trim() || 'style';
+      var text = document.getElementById('t-style-form-text').value;
+      var neg = document.getElementById('t-style-form-neg').value;
+      var blob = new Blob([text + (neg ? '\n\nNEGATIVE:\n' + neg : '')], {type: 'text/plain'});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'style_' + name.replace(/[^a-zA-Z0-9]/g, '_') + '.txt';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
     // -- Templates Prompt --
 
     function renderExamples(examples) {
@@ -484,18 +496,14 @@
           var pub = t.is_public ? ' 🌐' : ' 🔒';
           var isDefault = !!t.is_default;
           var canEdit = t.editable && !isDefault;
-          var typeLabel = t.prompt_type ? t.prompt_type.toUpperCase() : '?';
           var fmtLabel = t.output_format || 'text';
           var tag = isDefault ? '<span class="text-[9px] text-amber-500 font-medium ml-1">système</span>' : '';
           if (!isDefault && canEdit) tag += ' <span class="text-[9px] text-indigo-500 font-medium ml-0.5">moi</span>';
-          html += '<div class="fria-tmpl-row flex flex-col px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700' +
-            (canEdit ? ' cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' : '') +
+          html += '<div class="fria-tmpl-row flex flex-col px-2 py-1.5 rounded-md bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-700 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' +
             '" onclick="editTemplateTab(' + t.id + ')" title="Cliquer pour editer">' +
             '<div class="flex items-center justify-between">' +
-            '<div><span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded ' +
-            (isDefault ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400') +
-            '">' + typeLabel + ' · ' + fmtLabel + '</span>' +
-            '<span class="text-xs text-slate-700 dark:text-slate-300 ml-2">' + name + '</span>' + tag +
+            '<div><span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">' + fmtLabel + '</span>' +
+            '<span class="text-xs font-medium text-slate-700 dark:text-slate-300 ml-2">' + name + '</span>' + tag +
             '<span class="text-xs text-slate-400 ml-1">' + author + pub + '</span></div>' +
             '<div class="flex gap-1 shrink-0 ml-2" onclick="event.stopPropagation()">';
           if (canEdit) {
@@ -512,7 +520,6 @@
     function newTemplateTab() {
       document.getElementById('tmpl-name').value = '';
       document.getElementById('tmpl-name').dataset.editId = '';
-      document.getElementById('tmpl-type').value = 'sdxl';
       document.getElementById('tmpl-format').value = 'text';
       document.getElementById('tmpl-system-prompt').value = '';
       document.getElementById('tmpl-public').checked = false;
@@ -526,7 +533,6 @@
         var t = list.find(function(x){ return x.id === id; });
         if (!t) return;
         document.getElementById('tmpl-name').value = t.name || '';
-        document.getElementById('tmpl-type').value = t.prompt_type || 'sdxl';
         document.getElementById('tmpl-format').value = t.output_format || 'text';
         document.getElementById('tmpl-system-prompt').value = t.system_prompt || '';
         document.getElementById('tmpl-public').checked = !!t.is_public;
@@ -550,7 +556,6 @@
         if (!t) return;
         document.getElementById('tmpl-name').value = (t.name || '') + ' (copie)';
         document.getElementById('tmpl-name').dataset.editId = '';
-        document.getElementById('tmpl-type').value = t.prompt_type || 'sdxl';
         document.getElementById('tmpl-format').value = t.output_format || 'text';
         document.getElementById('tmpl-system-prompt').value = t.system_prompt || '';
         document.getElementById('tmpl-public').checked = false;
@@ -574,20 +579,17 @@
 
     async function saveTemplateTab() {
       var name = document.getElementById('tmpl-name').value.trim();
-      var pt = document.getElementById('tmpl-type').value;
       var fmt = document.getElementById('tmpl-format').value;
       var sys = document.getElementById('tmpl-system-prompt').value;
       var examples = getExamples();
       var isPublic = document.getElementById('tmpl-public').checked;
       var editId = document.getElementById('tmpl-name').dataset.editId;
 
-      if (!pt) { showModal('Template', 'Type de prompt requis', 'error'); return; }
-      if (!name) { name = pt + ' - ' + fmt; document.getElementById('tmpl-name').value = name; }
+      if (!name) { showModal('Template', 'Nom requis', 'error'); return; }
 
       try {
         var body = {
           name: name,
-          prompt_type: pt,
           output_format: fmt,
           system_prompt: sys,
           examples: examples,
@@ -622,14 +624,12 @@
 
     function exportTemplate() {
       var name = document.getElementById('tmpl-name').value.trim() || 'template';
-      var pt = document.getElementById('tmpl-type').value;
       var fmt = document.getElementById('tmpl-format').value;
       var sys = document.getElementById('tmpl-system-prompt').value;
       var examples = getExamples();
       var isPublic = document.getElementById('tmpl-public').checked;
       var data = {
         name: name,
-        prompt_type: pt,
         output_format: fmt,
         system_prompt: sys,
         examples: examples,

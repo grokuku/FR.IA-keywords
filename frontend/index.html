@@ -682,6 +682,7 @@
             <div class="flex gap-2">
               <button onclick="saveStyleTab()" id="btn-t-style-save" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500">Ajouter</button>
               <button onclick="clearStyleFormTab()" id="btn-t-style-clear" class="hidden px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md">Annuler edit</button>
+              <button onclick="exportStyle()" class="px-3 py-1.5 text-xs text-indigo-500 hover:text-indigo-700 border border-indigo-300 rounded-md ml-auto transition">📥 Exporter</button>
             </div>
           </div>
         </div>
@@ -692,8 +693,7 @@
         <!-- Gauche : liste des templates -->
         <div id="templates-left" class="flex flex-col overflow-hidden" style="width: 30%; min-width: 200px;">
           <div class="px-4 pt-4 pb-2 shrink-0">
-            <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-2">Templates</h2>
-            <button onclick="newTemplateTab()" class="w-full px-2 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500 transition">+ Nouveau template</button>
+            <h2 class="text-sm font-semibold text-slate-800 dark:text-slate-200">Templates</h2>
           </div>
           <div id="templates-tab-list" class="flex-1 overflow-y-auto space-y-1 px-4 pb-4">
             <p class="text-xs text-slate-400">Chargement...</p>
@@ -703,26 +703,7 @@
         <div id="templates-divider" class="shrink-0 cursor-col-resize hover:bg-indigo-500/50 transition-colors" style="width: 6px; background: transparent;"></div>
         <!-- Droite : edition -->
         <div id="templates-right" class="flex flex-col overflow-hidden p-4" style="flex: 1; min-width: 350px;">
-          <div class="flex flex-wrap items-center gap-2 mb-2">
-            <input type="text" id="tmpl-name" placeholder="Nom du template" class="flex-[2] min-w-[120px] text-sm border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-            <select id="tmpl-type" class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-              <option value="sdxl">SDXL</option>
-              <option value="sd15">SD 1.5</option>
-              <option value="flux">Flux</option>
-              <option value="anima">Anima</option>
-              <option value="qwen">Qwen</option>
-              <option value="ideogram4">Ideogram 4</option>
-              <option value="liste">Liste</option>
-            </select>
-            <select id="tmpl-format" class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-              <option value="text">Texte brut</option>
-              <option value="markdown">Markdown</option>
-              <option value="json">JSON</option>
-            </select>
-            <label class="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 cursor-pointer">
-              <input type="checkbox" id="tmpl-public" class="rounded"> Public
-            </label>
-          </div>
+          <input type="text" id="tmpl-name" placeholder="Nom du template" class="w-full text-sm border border-slate-300 rounded-md px-2 py-1 mb-2 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
           <div class="flex gap-3 flex-1 min-h-0">
             <!-- Left: Instructions -->
             <div class="flex-1 flex flex-col min-h-0">
@@ -738,16 +719,26 @@
                 <p class="text-xs text-slate-400 italic">Aucun exemple</p>
               </div>
               <div class="flex gap-1 mt-1">
-                <input type="text" id="tmpl-example-input" placeholder="Nouvel exemple..."
-                  class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
-                <button onclick="addTemplateExample()" class="px-2 py-1 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-500">+</button>
+                <input type="text" id="tmpl-example-input" placeholder="Nouvel exemple"
+                  class="flex-1 text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200" style="min-height: 90px;">
+                <button onclick="addTemplateExample()" class="px-2 py-1 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-500 transition">+</button>
               </div>
             </div>
           </div>
-          <div class="flex gap-2 mt-2">
-            <button onclick="saveTemplateTab()" id="btn-tmpl-save" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500 transition">Sauvegarder</button>
-            <button onclick="clearTemplateFormTab()" id="btn-tmpl-clear" class="hidden px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md transition">Annuler</button>
-            <button onclick="exportTemplate()" class="px-3 py-1.5 text-xs text-indigo-500 hover:text-indigo-700 border border-indigo-300 rounded-md ml-auto transition">📥 Exporter</button>
+          <div class="flex flex-wrap items-center gap-2 mt-2">
+            <select id="tmpl-format" class="text-xs border border-slate-300 rounded-md px-2 py-1 dark:bg-slate-700 dark:border-slate-600 dark:text-slate-200">
+              <option value="text">Texte brut</option>
+              <option value="markdown">Markdown</option>
+              <option value="json">JSON</option>
+            </select>
+            <label class="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 cursor-pointer">
+              <input type="checkbox" id="tmpl-public" class="rounded"> Public
+            </label>
+            <div class="flex gap-2 ml-auto">
+              <button onclick="saveTemplateTab()" id="btn-tmpl-save" class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-500 transition">Sauvegarder</button>
+              <button onclick="clearTemplateFormTab()" id="btn-tmpl-clear" class="hidden px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-300 rounded-md transition">Annuler</button>
+              <button onclick="exportTemplate()" class="px-3 py-1.5 text-xs text-indigo-500 hover:text-indigo-700 border border-indigo-300 rounded-md transition">📥 Exporter</button>
+            </div>
           </div>
         </div>
       </div>
